@@ -26,5 +26,4 @@ async def update_me(
     if body.avatar_url is not None:
         current_user.avatar_url = body.avatar_url
     await db.commit()
-    await db.refresh(current_user)
     return UserProfileResponse.model_validate(current_user)

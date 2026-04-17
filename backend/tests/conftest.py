@@ -1,46 +1,54 @@
 import os
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from typing import Optional
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.database import Base  # Base definida a database.py, no a models
+from app.core.database import Base
 
-# Al CI: postgresql+asyncpg://test_user:test_password@localhost:5432/test_db
-# En local: definir DATABASE_URL a l'entorn o usar els defaults del .env
 TEST_DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db",
 )
 
 
-@pytest_asyncio.fixture(scope="session")
-async def engine():
-    _engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield _engine
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await _engine.dispose()
+@dataclass
+class MockUser:
+    """Usuari mockat com a dataclass real per evitar conflictes amb SQLAlchemy i FastAPI."""
+
+    id: uuid.UUID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+    email: str = "test@example.com"
+    display_name: Optional[str] = "Test User"
+    avatar_url: Optional[str] = None
+    created_at: datetime = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    last_seen_at: Optional[datetime] = None
 
 
 @pytest_asyncio.fixture
-async def db_session(engine):
+async def db_session() -> AsyncSession:
+    """Engine i sessió nous per cada test — evita conflictes d'event loop entre tests."""
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
     async with async_session() as session:
         yield session
         await session.rollback()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
 @pytest.fixture
 def mock_supabase():
     """Mock del client Supabase per als tests que patchegen asyncio.to_thread."""
+    from unittest.mock import MagicMock
+
     client = MagicMock()
     mock_sess = MagicMock()
     mock_sess.access_token = "fake-access-token"
@@ -62,21 +70,14 @@ def mock_supabase():
 
 
 @pytest.fixture
-def mock_current_user():
+def mock_current_user() -> MockUser:
     """Usuari mockat per als tests que necessiten autenticació."""
-    user = MagicMock()
-    user.id = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
-    user.email = "test@example.com"
-    user.display_name = "Test User"
-    user.avatar_url = None
-    user.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    user.last_seen_at = None
-    return user
+    return MockUser()
 
 
 @pytest_asyncio.fixture
-async def client(db_session: AsyncSession, mock_current_user: MagicMock):
-    from main import app  # backend/main.py, no app.main
+async def client(db_session: AsyncSession, mock_current_user: MockUser):
+    from main import app
     from app.core.database import get_db
     from app.core.security import get_current_user
 

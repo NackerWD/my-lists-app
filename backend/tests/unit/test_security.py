@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.core.security import get_current_user, verify_supabase_token
+from app.core.security import ROLE_HIERARCHY, get_current_user, require_list_role, verify_supabase_token
 
 
 def _make_credentials(token: str = "valid-token") -> HTTPAuthorizationCredentials:
@@ -97,3 +97,73 @@ class TestGetCurrentUser:
         mock_db.add.assert_not_called()
         mock_db.commit.assert_not_called()
         assert user is existing
+
+
+class TestRequireListRole:
+    def _make_member_db(self, member: object) -> AsyncMock:
+        """BD mockada que retorna `member` per a la consulta de ListMember."""
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = member
+        db.execute = AsyncMock(return_value=result_mock)
+        return db
+
+    async def test_no_membership_raises_403_access_denied(self) -> None:
+        """Si l'usuari no és membre de la llista, s'ha de retornar 403 ACCESS_DENIED."""
+        check = require_list_role("viewer")
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+        mock_db = self._make_member_db(member=None)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await check(
+                list_id=uuid.uuid4(),
+                current_user=mock_user,  # type: ignore[arg-type]
+                db=mock_db,  # type: ignore[arg-type]
+            )
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "ACCESS_DENIED"
+
+    async def test_insufficient_role_raises_403(self) -> None:
+        """Si el rol de l'usuari és inferior al mínim, s'ha de retornar 403 INSUFFICIENT_ROLE."""
+        check = require_list_role("editor")
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+
+        member = MagicMock()
+        member.role = "viewer"  # viewer < editor
+        mock_db = self._make_member_db(member=member)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await check(
+                list_id=uuid.uuid4(),
+                current_user=mock_user,  # type: ignore[arg-type]
+                db=mock_db,  # type: ignore[arg-type]
+            )
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "INSUFFICIENT_ROLE"
+
+    async def test_sufficient_role_returns_user(self) -> None:
+        """Si l'usuari té el rol mínim requerit, ha de retornar l'usuari."""
+        check = require_list_role("viewer")
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+
+        member = MagicMock()
+        member.role = "owner"  # owner >= viewer
+        mock_db = self._make_member_db(member=member)
+
+        result = await check(
+            list_id=uuid.uuid4(),
+            current_user=mock_user,  # type: ignore[arg-type]
+            db=mock_db,  # type: ignore[arg-type]
+        )
+
+        assert result is mock_user
+
+    async def test_role_hierarchy_values(self) -> None:
+        """Verifica que la jerarquia de rols és correcta."""
+        assert ROLE_HIERARCHY["owner"] > ROLE_HIERARCHY["editor"]
+        assert ROLE_HIERARCHY["editor"] > ROLE_HIERARCHY["viewer"]
