@@ -1,90 +1,10 @@
-"""Tests d'integració per als endpoints stub (TODO).
-Comproven que els endpoints estan registrats i responen correctament
-amb el mock de get_current_user ja configurat al conftest.
+"""Tests d'integració per als endpoints stub que encara no estan implementats.
+Lists i list_items han estat eliminats d'aquí — coberts per
+test_lists_endpoints.py i test_list_items_endpoints.py.
 """
 import uuid
 
 from httpx import AsyncClient
-
-
-class TestListsEndpoints:
-    async def test_get_lists(self, client: AsyncClient) -> None:
-        response = await client.get(
-            "/api/v1/lists/",
-            headers={"Authorization": "Bearer valid-token"},
-        )
-        assert response.status_code == 200
-
-    async def test_create_list(self, client: AsyncClient) -> None:
-        response = await client.post(
-            "/api/v1/lists/",
-            headers={"Authorization": "Bearer valid-token"},
-            json={},
-        )
-        assert response.status_code == 201
-
-    async def test_get_list_by_id(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        response = await client.get(
-            f"/api/v1/lists/{list_id}",
-            headers={"Authorization": "Bearer valid-token"},
-        )
-        assert response.status_code == 200
-
-    async def test_update_list(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        response = await client.patch(
-            f"/api/v1/lists/{list_id}",
-            headers={"Authorization": "Bearer valid-token"},
-            json={},
-        )
-        assert response.status_code == 200
-
-    async def test_delete_list(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        response = await client.delete(
-            f"/api/v1/lists/{list_id}",
-            headers={"Authorization": "Bearer valid-token"},
-        )
-        assert response.status_code == 204
-
-
-class TestListItemsEndpoints:
-    async def test_get_items(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        response = await client.get(
-            f"/api/v1/lists/{list_id}/items",
-            headers={"Authorization": "Bearer valid-token"},
-        )
-        assert response.status_code == 200
-
-    async def test_create_item(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        response = await client.post(
-            f"/api/v1/lists/{list_id}/items",
-            headers={"Authorization": "Bearer valid-token"},
-            json={},
-        )
-        assert response.status_code == 201
-
-    async def test_update_item(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        item_id = uuid.uuid4()
-        response = await client.patch(
-            f"/api/v1/lists/{list_id}/items/{item_id}",
-            headers={"Authorization": "Bearer valid-token"},
-            json={},
-        )
-        assert response.status_code == 200
-
-    async def test_delete_item(self, client: AsyncClient) -> None:
-        list_id = uuid.uuid4()
-        item_id = uuid.uuid4()
-        response = await client.delete(
-            f"/api/v1/lists/{list_id}/items/{item_id}",
-            headers={"Authorization": "Bearer valid-token"},
-        )
-        assert response.status_code == 204
 
 
 class TestListMembersEndpoints:

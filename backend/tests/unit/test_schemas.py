@@ -42,8 +42,8 @@ class TestListSchemas:
     def test_list_create_valid(self) -> None:
         data = ListCreate(title="La meva llista")
         assert data.title == "La meva llista"
-        assert data.is_archived is False
         assert data.description is None
+        assert data.list_type_id is None
 
     def test_list_create_with_type(self) -> None:
         lid = uuid.uuid4()
@@ -59,9 +59,9 @@ class TestListSchemas:
 class TestListItemSchemas:
     def test_list_item_create_defaults(self) -> None:
         data = ListItemCreate(content="Comprar llet")
-        assert data.is_checked is False
         assert data.priority is None
-        assert data.position == 0  # defecte és 0, no None
+        assert data.position == 0
+        assert data.metadata_ is None
 
     def test_list_item_priority_valid_values(self) -> None:
         for priority in ["high", "medium", "low"]:

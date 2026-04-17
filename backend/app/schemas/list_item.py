@@ -5,18 +5,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
-class ListItemBase(BaseModel):
+class ListItemCreate(BaseModel):
     content: str
-    is_checked: bool = False
-    position: int = 0
     due_date: datetime | None = None
     priority: Literal["high", "medium", "low"] | None = None
     remind_at: datetime | None = None
     metadata_: dict | None = None
-
-
-class ListItemCreate(ListItemBase):
-    pass
+    position: int = 0
 
 
 class ListItemUpdate(BaseModel):
@@ -26,14 +21,20 @@ class ListItemUpdate(BaseModel):
     due_date: datetime | None = None
     priority: Literal["high", "medium", "low"] | None = None
     remind_at: datetime | None = None
-    metadata_: dict | None = None
 
 
-class ListItemResponse(ListItemBase):
+class ListItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     list_id: uuid.UUID
     created_by: uuid.UUID | None
+    content: str
+    is_checked: bool
+    position: int
+    due_date: datetime | None
+    priority: str | None
+    remind_at: datetime | None
+    metadata_: dict | None
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
