@@ -1,16 +1,25 @@
 import { enqueueOperation } from "@/lib/offline/queue";
+import { supabase } from "@/lib/supabase";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-let accessToken: string | null = null;
-
-export function setAccessToken(token: string | null) {
-  accessToken = token;
+// Refresca la sessió de Supabase i retorna el nou access token
+async function refreshAccessToken(): Promise<boolean> {
+  const { data, error } = await supabase.auth.refreshSession();
+  return !error && !!data.session;
 }
 
-async function refreshAccessToken(): Promise<boolean> {
-  // TODO: implementar — bescanvia el refresh token per un nou access token
-  return false;
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
+  return headers;
 }
 
 async function request<T>(
@@ -19,12 +28,7 @@ async function request<T>(
   body?: unknown,
   retry = true
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (accessToken) {
-    headers["Authorization"] = `Bearer ${accessToken}`;
-  }
+  const headers = await getAuthHeaders();
 
   let response: Response;
   try {
@@ -34,7 +38,6 @@ async function request<T>(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    // Network error — enqueue for offline retry
     await enqueueOperation({ method, url: `${BASE_URL}${path}`, body });
     throw new Error("Network error — operation queued");
   }
@@ -44,6 +47,7 @@ async function request<T>(
     if (refreshed) {
       return request<T>(method, path, body, false);
     }
+    // Token no refrescable — el store s'encarregarà del logout
   }
 
   if (!response.ok) {

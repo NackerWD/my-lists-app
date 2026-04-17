@@ -2,45 +2,58 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/lib/stores/auth.store";
+import NavBar from "@/components/ui/NavBar";
+import SideMenu from "@/components/ui/SideMenu";
 
 export default function HomePage() {
   const router = useRouter();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { user, isAuthenticated, _initFromSession } = useAuthStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-    }
-  }, [isAuthenticated, router]);
+    async function init() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-  if (!isAuthenticated) return null;
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!isAuthenticated) {
+        await _initFromSession();
+      }
+
+      setChecking(false);
+    }
+    init();
+  }, [isAuthenticated, router, _initFromSession]);
+
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Top nav */}
-      <header className="flex items-center justify-between px-4 py-3 border-b">
-        <button aria-label="Menú" className="p-2 rounded-md hover:bg-gray-100">
-          <span className="block w-5 h-0.5 bg-gray-800 mb-1" />
-          <span className="block w-5 h-0.5 bg-gray-800 mb-1" />
-          <span className="block w-5 h-0.5 bg-gray-800" />
-        </button>
-        <h1 className="text-base font-semibold">Les meves llistes</h1>
-        <button
-          aria-label="Perfil"
-          className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center text-sm font-medium"
-        >
-          U
-        </button>
-      </header>
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      <NavBar title="Les meves llistes" onMenuToggle={() => setMenuOpen(true)} />
 
-      {/* Main content */}
+      <SideMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+
       <main className="flex-1 p-4">
-        <p className="text-gray-500 text-sm text-center mt-8">
-          {/* TODO: implementar — llistat de llistes de l'usuari */}
-          Cap llista de moment. Crea&apos;n una!
+        <p className="text-gray-500 text-sm text-center mt-12">
+          {user?.displayName
+            ? `Hola, ${user.displayName}! Cap llista de moment.`
+            : "Cap llista de moment. Crea\u2019n una!"}
         </p>
       </main>
     </div>

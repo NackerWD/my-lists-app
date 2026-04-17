@@ -10,6 +10,8 @@ passlib[bcrypt]==1.7.*
 slowapi==0.1.*
 sentry-sdk[fastapi]==2.*
 httpx==0.28.*
+supabase==2.*
 pytest==8.*
 pytest-asyncio==0.24.*
+pytest-mock==3.*
 ruff==0.8.*
