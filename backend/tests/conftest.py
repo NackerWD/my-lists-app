@@ -1,41 +1,65 @@
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import uuid
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
-from app.core.config import settings
-from app.core.database import Base, get_db
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from app.core.database import get_db
+from app.core.security import get_current_user
 from main import app
 
-# Usa la mateixa BD però amb rollback per aïllar cada test
-TEST_DATABASE_URL = settings.DATABASE_URL
+
+@pytest.fixture
+def mock_db():
+    session = AsyncMock()
+    # execute retorna un resultat configurat per defecte amb scalar_one_or_none = None
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    session.execute.return_value = mock_result
+    # add és sync en SQLAlchemy — cal MagicMock, no AsyncMock
+    session.add = MagicMock()
+    session.refresh = AsyncMock()
+    return session
 
 
-@pytest_asyncio.fixture(scope="session")
-async def engine():
-    _engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield _engine
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await _engine.dispose()
+@pytest.fixture
+def mock_supabase():
+    client = MagicMock()
+    client.auth.sign_up = MagicMock()
+    client.auth.sign_in_with_password = MagicMock()
+    client.auth.sign_out = MagicMock()
+    client.auth.refresh_session = MagicMock()
+    client.auth.get_user = MagicMock()
+    client.auth.admin = MagicMock()
+    client.auth.admin.sign_out = MagicMock()
+    return client
 
 
-@pytest_asyncio.fixture
-async def db_session(engine):
-    TestSession = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with TestSession() as session:
-        async with session.begin():
-            yield session
-            await session.rollback()
+@pytest.fixture
+def mock_user():
+    user = MagicMock()
+    user.id = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+    user.email = "test@example.com"
+    user.display_name = "Test User"
+    user.avatar_url = None
+    user.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    user.last_seen_at = None
+    return user
 
 
-@pytest_asyncio.fixture
-async def client(db_session: AsyncSession):
-    async def override_get_db():
-        yield db_session
+@pytest.fixture(autouse=True)
+def override_dependencies(mock_db, mock_user):
+    async def mock_get_db():
+        yield mock_db
 
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db] = mock_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
-    app.dependency_overrides.clear()

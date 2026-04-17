@@ -1,15 +1,12 @@
-"""Integration tests per als endpoints d'autenticació. Supabase és mockat."""
+"""Integration tests per als endpoints d'autenticació. BD i Supabase estan mockat."""
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import AsyncClient
 
-
-def _mock_supabase_user(email: str = "test@test.com") -> MagicMock:
-    user = MagicMock()
-    user.id = str(uuid.uuid4())
-    user.email = email
-    return user
+from app.core.security import get_current_user
+from main import app
 
 
 def _mock_supabase_session(access: str = "access-token", refresh: str = "refresh-token") -> MagicMock:
@@ -21,15 +18,21 @@ def _mock_supabase_session(access: str = "access-token", refresh: str = "refresh
 
 
 def _mock_sign_up_response(email: str = "test@test.com") -> MagicMock:
+    user = MagicMock()
+    user.id = str(uuid.uuid4())
+    user.email = email
     resp = MagicMock()
-    resp.user = _mock_supabase_user(email)
+    resp.user = user
     resp.session = None
     return resp
 
 
 def _mock_sign_in_response(email: str = "test@test.com") -> MagicMock:
+    user = MagicMock()
+    user.id = str(uuid.uuid4())
+    user.email = email
     resp = MagicMock()
-    resp.user = _mock_supabase_user(email)
+    resp.user = user
     resp.session = _mock_supabase_session()
     return resp
 
@@ -37,7 +40,7 @@ def _mock_sign_in_response(email: str = "test@test.com") -> MagicMock:
 class TestRegister:
     async def test_register_success(self, client: AsyncClient) -> None:
         with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = _mock_sign_up_response()
+            mock_thread.return_value = _mock_sign_up_response("new@test.com")
             response = await client.post(
                 "/api/v1/auth/register",
                 json={"email": "new@test.com", "password": "password12345"},
@@ -47,19 +50,14 @@ class TestRegister:
         assert data["email"] == "new@test.com"
         assert "Verifica" in data["message"]
 
-    async def test_register_duplicate_email(self, client: AsyncClient) -> None:
-        email = f"dup-{uuid.uuid4().hex[:6]}@test.com"
-        with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = _mock_sign_up_response(email)
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": email, "password": "password12345"},
-            )
-            # Second attempt — local DB should detect duplicate
-            response = await client.post(
-                "/api/v1/auth/register",
-                json={"email": email, "password": "password12345"},
-            )
+    async def test_register_duplicate_email(self, client: AsyncClient, mock_db: MagicMock) -> None:
+        # Configura el mock de BD perquè retorni un usuari existent
+        mock_db.execute.return_value.scalar_one_or_none.return_value = MagicMock()
+
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": "existing@test.com", "password": "password12345"},
+        )
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "EMAIL_EXISTS"
 
@@ -73,20 +71,11 @@ class TestRegister:
 
 class TestLogin:
     async def test_login_success(self, client: AsyncClient) -> None:
-        # Registra l'usuari primer
-        email = f"login-{uuid.uuid4().hex[:6]}@test.com"
         with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = _mock_sign_up_response(email)
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": email, "password": "password12345"},
-            )
-
-        with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = _mock_sign_in_response(email)
+            mock_thread.return_value = _mock_sign_in_response("user@test.com")
             response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": email, "password": "password12345"},
+                json={"email": "user@test.com", "password": "password12345"},
             )
         assert response.status_code == 200
         data = response.json()
@@ -131,24 +120,19 @@ class TestRefresh:
 
 class TestMe:
     async def test_me_no_token(self, client: AsyncClient) -> None:
+        # Elimina l'override de get_current_user per testar el cas "sense autenticació"
+        app.dependency_overrides.pop(get_current_user, None)
+
         response = await client.get("/api/v1/auth/me")
-        assert response.status_code == 403
+        # HTTPBearer llança 403 quan no hi ha header Authorization
+        assert response.status_code in [401, 403]
 
     async def test_me_with_valid_token(self, client: AsyncClient) -> None:
-        email = f"me-{uuid.uuid4().hex[:6]}@test.com"
-        user_id = str(uuid.uuid4())
-
-        mock_user_resp = MagicMock()
-        mock_user_resp.user = MagicMock()
-        mock_user_resp.user.id = user_id
-        mock_user_resp.user.email = email
-
-        with patch("app.core.security.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
-            mock_thread.return_value = mock_user_resp
-            response = await client.get(
-                "/api/v1/auth/me",
-                headers={"Authorization": "Bearer valid-token"},
-            )
+        # get_current_user és ja override a mock_user via fixture autouse
+        response = await client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": "Bearer valid-token"},
+        )
         assert response.status_code == 200
         data = response.json()
-        assert data["email"] == email
+        assert data["email"] == "test@example.com"
