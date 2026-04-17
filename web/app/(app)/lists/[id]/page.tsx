@@ -1,6 +1,8 @@
-"use client";
+export const dynamicParams = false;
 
-export const dynamic = "force-dynamic";
+export function generateStaticParams() {
+  return [];
+}
 
 export default function ListDetailPage({ params }: { params: { id: string } }) {
   // TODO: implementar — detall d'una llista i els seus ítems

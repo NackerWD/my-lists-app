@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     REFRESH_SECRET_KEY: str = "changeme-another-256-bit-secret"
     SUPABASE_URL: str = "https://placeholder.supabase.co"
     SUPABASE_ANON_KEY: str = "placeholder-anon-key"
+    SUPABASE_SERVICE_KEY: str = "placeholder-service-key"
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "capacitor://localhost"]
     ENVIRONMENT: str = "development"
     SENTRY_DSN: str = ""

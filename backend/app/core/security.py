@@ -1,38 +1,103 @@
+import asyncio
+import uuid
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client, create_client
+
+from app.core.config import settings
+from app.core.database import get_db
+from app.models.list_member import ListMember
+from app.models.user import User
 
 bearer_scheme = HTTPBearer()
 
+ROLE_HIERARCHY: dict[str, int] = {"viewer": 0, "editor": 1, "owner": 2}
 
-def verify_supabase_token(token: str) -> dict:
-    """Validate a Supabase JWT and return the decoded payload."""
-    # TODO: implementar — validació real contra SUPABASE_URL/auth/v1/user
-    # Placeholder: retorna un payload mock per no bloquejar el servidor durant dev
-    if not token:
+_supabase_client: Client | None = None
+
+
+def get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    return _supabase_client
+
+
+async def verify_supabase_token(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    supabase = get_supabase()
+    try:
+        response = await asyncio.to_thread(supabase.auth.get_user, credentials.credentials)
+        if not response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token invàlid",
+            )
+        return {
+            "sub": str(response.user.id),
+            "email": response.user.email,
+        }
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing",
+            detail="Token invàlid o caducat",
         )
-    return {"sub": "00000000-0000-0000-0000-000000000000", "email": "dev@example.com", "role": "owner"}
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> dict:
-    """FastAPI dependency: extracts and validates Bearer token."""
-    return verify_supabase_token(credentials.credentials)
+    payload: dict = Depends(verify_supabase_token),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    user_id = uuid.UUID(payload["sub"])
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # Primer login: crea el registre local sincronitzat amb el UUID de Supabase
+        user = User(
+            id=user_id,
+            email=payload["email"],
+            display_name=payload["email"].split("@")[0],
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    return user
 
 
-def require_role(role: str):
-    """Dependency factory: raises 403 if the user doesn't have the required role."""
+def require_list_role(minimum_role: str):
+    """Factory de dependency que comprova el rol mínim de l'usuari a una llista."""
 
-    async def _check_role(current_user: dict = Depends(get_current_user)) -> dict:
-        # TODO: implementar — comparació real de rols
-        if current_user.get("role") != role:
+    async def _check(
+        list_id: uuid.UUID,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        result = await db.execute(
+            select(ListMember).where(
+                ListMember.list_id == list_id,
+                ListMember.user_id == current_user.id,
+            )
+        )
+        member = result.scalar_one_or_none()
+        if member is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role '{role}' required",
+                detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},
+            )
+        if ROLE_HIERARCHY.get(member.role, -1) < ROLE_HIERARCHY.get(minimum_role, 0):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"detail": "Permisos insuficients", "code": "INSUFFICIENT_ROLE"},
             )
         return current_user
 
-    return _check_role
+    return _check
