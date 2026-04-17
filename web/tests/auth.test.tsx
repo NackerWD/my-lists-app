@@ -241,3 +241,68 @@ describe("NavBar", () => {
     });
   });
 });
+
+// ---- SideMenu ----
+import SideMenu from "@/components/ui/SideMenu";
+
+describe("SideMenu", () => {
+  const mockLogout = jest.fn().mockResolvedValue(undefined);
+
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: { id: "1", email: "user@test.com", displayName: "Joan", avatarUrl: null },
+      isAuthenticated: true,
+      logout: mockLogout,
+    });
+  });
+
+  it("no es mostra quan open=false", () => {
+    render(<SideMenu open={false} onClose={jest.fn()} />);
+    const aside = screen.getByRole("complementary", { name: /menú de navegació/i });
+    expect(aside).toHaveClass("-translate-x-full");
+  });
+
+  it("es mostra quan open=true", () => {
+    render(<SideMenu open={true} onClose={jest.fn()} />);
+    const aside = screen.getByRole("complementary", { name: /menú de navegació/i });
+    expect(aside).toHaveClass("translate-x-0");
+  });
+
+  it("mostra els elements de navegació", () => {
+    render(<SideMenu open={true} onClose={jest.fn()} />);
+    expect(screen.getByRole("link", { name: /inici/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /llistes/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /perfil/i })).toBeInTheDocument();
+  });
+
+  it("crida onClose en fer clic al botó de tancar", () => {
+    const onClose = jest.fn();
+    render(<SideMenu open={true} onClose={onClose} />);
+    fireEvent.click(screen.getByLabelText(/tancar menú/i));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("crida onClose en fer clic a l'overlay", () => {
+    const onClose = jest.fn();
+    render(<SideMenu open={true} onClose={onClose} />);
+    // L'overlay és el div amb aria-hidden="true"
+    const overlay = document.querySelector('[aria-hidden="true"]')!;
+    fireEvent.click(overlay);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("mostra el nom de l'usuari", () => {
+    render(<SideMenu open={true} onClose={jest.fn()} />);
+    expect(screen.getByText("Joan")).toBeInTheDocument();
+    expect(screen.getByText("user@test.com")).toBeInTheDocument();
+  });
+
+  it("crida logout en fer clic a Tanca sessió", async () => {
+    const onClose = jest.fn();
+    render(<SideMenu open={true} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: /tanca sessió/i }));
+    await waitFor(() => {
+      expect(mockLogout).toHaveBeenCalled();
+    });
+  });
+});
