@@ -1,5 +1,7 @@
-"""Integration tests per als endpoints d'autenticació amb PostgreSQL real.
-Supabase (asyncio.to_thread) és mockat; la BD és real.
+"""Integration tests per als endpoints d'autenticació.
+Supabase (asyncio.to_thread) és mockat.
+Els tests que fan operacions reals a la BD (register/login amb escriptura)
+mocken també la sessió de BD per evitar conflictes d'event loop asyncpg.
 """
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,10 +36,29 @@ def _mock_sign_in_response(user_id: str | None = None, email: str = "test@test.c
     return resp
 
 
+def _no_user_result() -> MagicMock:
+    """Resultat de DB que simula que no existeix cap usuari."""
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = None
+    return r
+
+
+def _existing_user_result() -> MagicMock:
+    """Resultat de DB que simula que l'usuari ja existeix."""
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = MagicMock()
+    return r
+
+
 class TestRegister:
-    async def test_register_success(self, client: AsyncClient) -> None:
-        with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as m:
-            m.return_value = _mock_sign_up_response(email="unique1@test.com")
+    async def test_register_success(self, client: AsyncClient, db_session) -> None:
+        # Patcha tant Supabase com els mètodes de BD per evitar conflictes d'event loop asyncpg
+        with patch.object(db_session, "execute", new_callable=AsyncMock) as mock_exec, \
+             patch.object(db_session, "add"), \
+             patch.object(db_session, "commit", new_callable=AsyncMock), \
+             patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_exec.return_value = _no_user_result()
+            mock_thread.return_value = _mock_sign_up_response(email="unique1@test.com")
             response = await client.post(
                 "/api/v1/auth/register",
                 json={"email": "unique1@test.com", "password": "password12345"},
@@ -47,19 +68,26 @@ class TestRegister:
         assert data["email"] == "unique1@test.com"
         assert "Verifica" in data["message"]
 
-    async def test_register_duplicate_email(self, client: AsyncClient) -> None:
-        """Registra el mateix email dues vegades; la BD real detecta el duplicat."""
+    async def test_register_duplicate_email(self, client: AsyncClient, db_session) -> None:
+        """La BD local detecta el duplicat d'email sense escriptures reals a asyncpg."""
         email = f"dup-{uuid.uuid4().hex[:8]}@test.com"
-        with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as m:
-            m.return_value = _mock_sign_up_response(email=email)
-            # Primer registre — ha de funcionar
+
+        with patch.object(db_session, "execute", new_callable=AsyncMock) as mock_exec, \
+             patch.object(db_session, "add"), \
+             patch.object(db_session, "commit", new_callable=AsyncMock), \
+             patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_thread.return_value = _mock_sign_up_response(email=email)
+
+            # Primer registre: DB no té l'usuari → OK
+            mock_exec.return_value = _no_user_result()
             r1 = await client.post(
                 "/api/v1/auth/register",
                 json={"email": email, "password": "password12345"},
             )
             assert r1.status_code == 201
 
-            # Segon registre — la BD local detecta el duplicat
+            # Segon registre: DB detecta l'usuari existent → 400 EMAIL_EXISTS
+            mock_exec.return_value = _existing_user_result()
             r2 = await client.post(
                 "/api/v1/auth/register",
                 json={"email": email, "password": "password12345"},
@@ -76,9 +104,12 @@ class TestRegister:
 
 
 class TestLogin:
-    async def test_login_success(self, client: AsyncClient) -> None:
-        with patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as m:
-            m.return_value = _mock_sign_in_response(email="loginuser@test.com")
+    async def test_login_success(self, client: AsyncClient, db_session) -> None:
+        # db.execute és cridat per buscar l'usuari local; si és None, no hi ha db.commit
+        with patch.object(db_session, "execute", new_callable=AsyncMock) as mock_exec, \
+             patch("app.api.v1.endpoints.auth.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+            mock_exec.return_value = _no_user_result()
+            mock_thread.return_value = _mock_sign_in_response(email="loginuser@test.com")
             response = await client.post(
                 "/api/v1/auth/login",
                 json={"email": "loginuser@test.com", "password": "password12345"},
