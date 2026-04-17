@@ -6,6 +6,7 @@ from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
+import asyncio
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -18,6 +19,12 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db",
 )
 
+@pytest.fixture(scope="session")
+def event_loop():
+    """Un sol event loop per a tota la sessió — evita 'attached to a different loop'."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
