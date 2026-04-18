@@ -16,6 +16,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "My Lists App",
   description: "App de llistes universals amb col·laboració en temps real",
+  manifest: "/manifest.json",
+  themeColor: "#6366f1",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "My Lists",
+  },
 };
 
 export default function RootLayout({
