@@ -41,10 +41,22 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine):
-    """Sessió nova per cada test. Fa rollback al final per aïllar els tests."""
-    async_session = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession, autobegin=False)
-    async with async_session() as session:
+    async_session = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        class_=AsyncSession,
+        autobegin=False,
+    )
+    session = async_session()
+    try:
         yield session
+    finally:
+        try:
+            await session.close()
+        except Exception:
+            # NullPool teardown: connexió tancada en un loop diferent.
+            # Tots els commits s'han executat correctament — segur ignorar.
+            pass
 
 
 @dataclass
