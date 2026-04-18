@@ -1,4 +1,4 @@
-import os
+﻿import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,7 +46,6 @@ async def db_session(test_engine):
         test_engine,
         expire_on_commit=False,
         class_=AsyncSession,
-        autobegin=False,
     )
     session = async_session()
     yield session
@@ -105,4 +104,3 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
         yield ac
 
     app.dependency_overrides.clear()
-
