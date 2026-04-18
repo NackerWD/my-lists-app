@@ -1,0 +1,30 @@
+{
+  "packageId": "com.placeholder.app",
+  "host": "staging.tuapp.vercel.app",
+  "name": "My Lists",
+  "launcherName": "Lists",
+  "display": "standalone",
+  "themeColor": "#6366f1",
+  "navigationColor": "#6366f1",
+  "backgroundColor": "#ffffff",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://staging.tuapp.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://staging.tuapp.vercel.app/icons/icon-512.png",
+  "appVersionCode": 1,
+  "appVersionName": "1.0.0",
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://staging.tuapp.vercel.app/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": { "enabled": false },
+    "playBilling": { "enabled": false }
+  },
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "orientation": "portrait",
+  "fingerprints": []
+}
