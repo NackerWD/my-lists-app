@@ -42,9 +42,7 @@ async def test_engine():
 @pytest_asyncio.fixture
 async def db_session(test_engine):
     """Sessió nova per cada test. Fa rollback al final per aïllar els tests."""
-    async_session = async_sessionmaker(
-        test_engine, expire_on_commit=False, class_=AsyncSession
-    )
+    async_session = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession, autobegin=False)
     async with async_session() as session:
         yield session
 
@@ -104,3 +102,4 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
         yield ac
 
     app.dependency_overrides.clear()
+
