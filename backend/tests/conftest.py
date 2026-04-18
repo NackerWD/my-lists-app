@@ -1,3 +1,4 @@
+import asyncio
 import os
 import uuid
 from dataclasses import dataclass
@@ -6,9 +7,9 @@ from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
-import asyncio
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -52,24 +53,38 @@ async def db_session(test_engine):
         await session.rollback()
 
 
-@pytest_asyncio.fixture
-async def db_user(db_session: AsyncSession):
-    """Insereix el mock_current_user a la BD per satisfer les FK.
-    Usa ON CONFLICT DO NOTHING perquè els commits persisteixen entre tests
-    (NullPool no reverteix transaccions ja commitejades)."""
-    from sqlalchemy import text
-
-    await db_session.execute(text("""
-        INSERT INTO users (id, email, display_name, created_at)
-        VALUES (
-            '550e8400-e29b-41d4-a716-446655440000',
-            'test@example.com',
-            'Test User',
-            NOW()
-        )
-        ON CONFLICT (id) DO NOTHING
-    """))
-    await db_session.commit()
+@pytest_asyncio.fixture(scope="session")
+async def db_user(test_engine):
+    """Insereix els usuaris de test una sola vegada per a tota la sessió.
+    Usa test_engine.begin() directament — el context manager fa commit()
+    automàticament en sortir, i ON CONFLICT DO NOTHING el fa idempotent.
+    Scope 'session' garanteix que les files existeixin per a tots els tests,
+    independentment del rollback dels db_session individuals."""
+    async with test_engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES (
+                '550e8400-e29b-41d4-a716-446655440000',
+                'test@example.com',
+                'Test User',
+                NOW()
+            )
+            ON CONFLICT (id) DO NOTHING
+        """))
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES (
+                '650e8400-e29b-41d4-a716-446655440001',
+                'other@example.com',
+                'Other User',
+                NOW()
+            )
+            ON CONFLICT (id) DO NOTHING
+        """))
+    return {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "other_id": "650e8400-e29b-41d4-a716-446655440001",
+    }
 
 
 @dataclass

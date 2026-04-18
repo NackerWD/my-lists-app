@@ -9,7 +9,6 @@ import uuid
 from datetime import datetime, timezone
 
 from httpx import AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.list import List
@@ -17,21 +16,6 @@ from app.models.list_member import ListMember
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
-
-
-async def _ensure_other_user(db: AsyncSession) -> None:
-    """Insereix el segon usuari de test. ON CONFLICT DO NOTHING per idempotència."""
-    await db.execute(text("""
-        INSERT INTO users (id, email, display_name, created_at)
-        VALUES (
-            '650e8400-e29b-41d4-a716-446655440001',
-            'other@example.com',
-            'Other User',
-            NOW()
-        )
-        ON CONFLICT (id) DO NOTHING
-    """))
-    await db.commit()
 
 
 async def _create_list_direct(
@@ -107,7 +91,6 @@ class TestGetListById:
     async def test_get_list_not_member(
         self, client: AsyncClient, db_session: AsyncSession, db_user
     ) -> None:
-        await _ensure_other_user(db_session)
         # Crea llista sense afegir mock_current_user com a membre
         list_id = await _create_list_direct(
             db_session, owner_id=OTHER_USER_ID, member_id=OTHER_USER_ID, role="owner"
@@ -140,7 +123,6 @@ class TestDeleteList:
     async def test_delete_list_not_owner(
         self, client: AsyncClient, db_session: AsyncSession, db_user
     ) -> None:
-        await _ensure_other_user(db_session)
         # Crea llista amb OTHER_USER com a owner; MOCK_USER és viewer
         list_id = await _create_list_direct(
             db_session,
