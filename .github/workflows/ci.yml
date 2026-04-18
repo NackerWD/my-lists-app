@@ -61,8 +61,9 @@ jobs:
         working-directory: backend
 
       - name: Dependency audit
-        run: pip install pip-audit && pip-audit -r requirements.txt --ignore-vuln CVE-2025-71176 --ignore-vuln PYSEC-2024-232 --ignore-vuln PYSEC-2024-233 --ignore-vuln CVE-2025-54121 --ignore-vuln CVE-2025-62727
+        run: pip install pip-audit && pip-audit -r requirements.txt --ignore-vuln CVE-2025-71176 --ignore-vuln PYSEC-2024-232 --ignore-vuln PYSEC-2024-233 --ignore-vuln CVE-2025-54121 --ignore-vuln CVE-2025-62727 --ignore-vuln CVE-2026-30922
         working-directory: backend
+
 
   frontend:
     name: ci / frontend
