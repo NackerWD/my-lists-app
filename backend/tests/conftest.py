@@ -109,3 +109,4 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
 
     app.dependency_overrides.clear()
 
+
