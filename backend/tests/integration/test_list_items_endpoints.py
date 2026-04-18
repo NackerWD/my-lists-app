@@ -19,13 +19,16 @@ MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 
 
 async def _setup_list(db: AsyncSession, title: str = "Test List") -> uuid.UUID:
-    """Insereix llista + membre (owner) i retorna l'id de la llista.
-    Assumeix que MOCK_USER_ID ja existeix a la BD (migració 0003)."""
+    from sqlalchemy import text
+    await db.execute(text("""
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW())
+        ON CONFLICT (id) DO NOTHING
+    """))
     now = datetime.now(timezone.utc)
     list_id = uuid.uuid4()
     lst = List(id=list_id, owner_id=MOCK_USER_ID, title=title, updated_at=now, created_at=now)
     db.add(lst)
-
     member = ListMember(
         id=uuid.uuid4(),
         list_id=list_id,
