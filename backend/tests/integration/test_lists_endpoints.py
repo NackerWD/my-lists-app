@@ -9,53 +9,39 @@ import uuid
 from datetime import datetime, timezone
 
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.list import List
-from app.models.list_member import ListMember
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
 
 
 async def _create_list_direct(
-    db: AsyncSession,
+    engine: AsyncEngine,
     title: str = "Test List",
-    owner_id: uuid.UUID = MOCK_USER_ID,
-    member_id: uuid.UUID = MOCK_USER_ID,
+    owner_id: str = "550e8400-e29b-41d4-a716-446655440000",
+    member_id: str = "550e8400-e29b-41d4-a716-446655440000",
     role: str = "owner",
 ) -> uuid.UUID:
-    """Insereix una llista + membre directament a la BD. Retorna l'id de la llista.
-    Assumeix que els usuaris (owner_id, member_id) ja existeixen a la BD
-    (sembrats per la migració 0003)."""
-    from sqlalchemy import text
-    await db.execute(text("""
-        INSERT INTO users (id, email, display_name, created_at)
-        VALUES 
-            ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
-            ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
-        ON CONFLICT (id) DO NOTHING
-    """))
+    """Insereix llista + membre via engine.begin()."""
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
-    lst = List(
-        id=list_id,
-        owner_id=owner_id,
-        title=title,
-        updated_at=now,
-        created_at=now,
-    )
-    db.add(lst)
-    member = ListMember(
-        id=uuid.uuid4(),
-        list_id=list_id,
-        user_id=member_id,
-        role=role,
-        joined_at=now,
-    )
-    db.add(member)
-    await db.commit()
-    await db.expunge_all()  # allibera objectes ORM per evitar connexions obertes al teardown
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES
+                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
+                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+            ON CONFLICT (id) DO NOTHING
+        """))
+        await conn.execute(text("""
+            INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
+            VALUES (:id, :owner_id, :title, false, :now, :now)
+        """), {"id": str(list_id), "owner_id": owner_id, "title": title, "now": now})
+        await conn.execute(text("""
+            INSERT INTO list_members (id, list_id, user_id, role, joined_at)
+            VALUES (:id, :list_id, :member_id, :role, :now)
+        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "member_id": member_id, "role": role, "now": now})
     return list_id
 
 
@@ -85,9 +71,9 @@ class TestCreateList:
 
 class TestGetListById:
     async def test_get_list_by_id(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
-        list_id = await _create_list_direct(db_session, title="Detall")
+        list_id = await _create_list_direct(test_engine, title="Detall")
         response = await client.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         data = response.json()
@@ -99,11 +85,12 @@ class TestGetListById:
         assert response.status_code == 404
 
     async def test_get_list_not_member(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
-        # Crea llista sense afegir mock_current_user com a membre
         list_id = await _create_list_direct(
-            db_session, owner_id=OTHER_USER_ID, member_id=OTHER_USER_ID, role="owner"
+            test_engine,
+            owner_id="650e8400-e29b-41d4-a716-446655440001",
+            member_id="650e8400-e29b-41d4-a716-446655440001",
         )
         response = await client.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 403
@@ -111,9 +98,9 @@ class TestGetListById:
 
 class TestUpdateList:
     async def test_update_list(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
-        list_id = await _create_list_direct(db_session, title="Original")
+        list_id = await _create_list_direct(test_engine, title="Original")
         response = await client.patch(
             f"/api/v1/lists/{list_id}", json={"title": "Actualitzat"}
         )
@@ -123,22 +110,20 @@ class TestUpdateList:
 
 class TestDeleteList:
     async def test_delete_list(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
-        list_id = await _create_list_direct(db_session)
+        list_id = await _create_list_direct(test_engine)
         response = await client.delete(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
 
     async def test_delete_list_not_owner(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
-        # Crea llista amb OTHER_USER com a owner; MOCK_USER és viewer
         list_id = await _create_list_direct(
-            db_session,
-            owner_id=OTHER_USER_ID,
-            member_id=MOCK_USER_ID,
-            role="viewer",
+            test_engine,
+            owner_id="650e8400-e29b-41d4-a716-446655440001",
+            member_id="650e8400-e29b-41d4-a716-446655440001",
         )
         response = await client.delete(f"/api/v1/lists/{list_id}")
         assert response.status_code == 403
