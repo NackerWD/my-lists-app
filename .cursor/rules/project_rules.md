@@ -112,3 +112,57 @@ MVP: un sol tipus de llista (todo) per validar el flux complet de seguretat i es
 - develop: integració — requereix PR + CI verd
 - feature/*: una branca per funcionalitat, base sempre develop
 - Mai push directe a main ni develop
+
+## Testing backend — regles crítiques
+
+1. Els helpers de test SEMPRE usen `engine.begin()` + SQL raw, MAI `db_session`:
+   ```python
+   async with engine.begin() as conn:
+       await conn.execute(text("INSERT INTO ..."), {...})
+   ```
+
+2. El fixture `db_session` NO usa `async with` — crea la sessió directament:
+   ```python
+   session = async_session()
+   yield session
+   ```
+
+3. NO usar `autobegin=False` — causa `InvalidRequestError` als helpers.
+
+4. NO afegir `drop_all` ni `dispose()` al teardown del `test_engine` —
+   causa bloqueig al CI (el CI s'ha quedat penjat 30+ minuts per això).
+
+5. El llindar de cobertura és al `ci.yml`, no al `pytest.ini`.
+
+6. Seed de dades de test: inserir al fixture `test_engine` via `engine.begin()`
+   amb `ON CONFLICT DO NOTHING` per idempotència.
+   - `MOCK_USER_ID = 550e8400-e29b-41d4-a716-446655440000`
+   - `OTHER_USER_ID = 650e8400-e29b-41d4-a716-446655440001`
+
+7. `pytest-asyncio asyncio_default_fixture_loop_scope = session` (a `pytest.ini`)
+   és suficient — NO cal fixture `event_loop` custom (deprecated i problemàtic).
+
+## Dependències fixes (no canviar sense revisar)
+
+- `fastapi==0.116.*` — 0.115 limita starlette <0.47
+- `starlette==0.47.2` — màxim compatible amb fastapi 0.116
+- `pytest==8.*` — pytest-asyncio 0.24 no suporta pytest 9
+- `pytest-asyncio==0.24.*` — única versió compatible amb pytest 8
+
+CVEs ignorats al pip-audit (incompatibilitat de dependències transitives):
+- CVE-2025-71176 (pytest) — pytest-asyncio no suporta pytest 9 encara
+- CVE-2025-54121, CVE-2025-62727 (starlette) — fastapi 0.116 limita starlette <0.48
+
+## pip-audit al CI
+
+Sempre en una sola línia amb `&&`, mai bloc `|` multiline:
+
+```yaml
+# CORRECTE
+run: pip install pip-audit && pip-audit -r requirements.txt --ignore-vuln ID1 --ignore-vuln ID2
+
+# INCORRECTE
+run: |
+  pip install pip-audit
+  pip-audit -r requirements.txt --ignore-vuln ID1
+```

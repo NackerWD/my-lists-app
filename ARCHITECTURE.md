@@ -11,7 +11,7 @@
 |---|---|---|---|
 | Frontend web | Next.js / React | 14+ App Router | TypeScript strict |
 | Estils | Tailwind CSS | 3+ | |
-| Backend API | FastAPI | 0.115+ | Python 3.12+ |
+| Backend API | FastAPI | 0.116+ | Python 3.12+ |
 | Base de dades | PostgreSQL | 16+ | Producció + tests |
 | Migracions | Alembic | 1.14+ | Async, amb rollback |
 | Auth | Supabase Auth | 2+ | JWT access 15min + refresh 7 dies |
@@ -235,21 +235,30 @@ Default         → 100 peticions/minut per IP
 
 ### Endpoints implementats (Sprint 1)
 ```
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/logout
-POST /api/v1/auth/refresh
-GET  /api/v1/auth/me
-GET  /api/v1/users/me
+POST  /api/v1/auth/register
+POST  /api/v1/auth/login
+POST  /api/v1/auth/logout
+POST  /api/v1/auth/refresh
+GET   /api/v1/auth/me
+GET   /api/v1/users/me
 PATCH /api/v1/users/me
+```
+
+### Endpoints implementats (Sprint 2)
+```
+GET    /api/v1/lists/
+POST   /api/v1/lists/
+GET    /api/v1/lists/{id}
+PATCH  /api/v1/lists/{id}
+DELETE /api/v1/lists/{id}
+GET    /api/v1/lists/{id}/items
+POST   /api/v1/lists/{id}/items
+PATCH  /api/v1/lists/{id}/items/{item_id}
+DELETE /api/v1/lists/{id}/items/{item_id}
 ```
 
 ### Endpoints pendents (stubs)
 ```
-GET/POST       /api/v1/lists
-GET/PATCH/DEL  /api/v1/lists/{id}
-GET/POST       /api/v1/lists/{id}/items
-PATCH/DEL      /api/v1/lists/{id}/items/{item_id}
 GET/DEL        /api/v1/lists/{id}/members
 POST           /api/v1/lists/{id}/invite
 GET/POST       /api/v1/invitations/{token}
@@ -327,16 +336,73 @@ Connexió restaurada (@capacitor/network)
 | INP | < 200ms |
 | TTFB | < 800ms |
 
+### Estructura de fitxers (Sprint 2)
+
+- `web/lib/types.ts` — tots els tipus TypeScript que reflecteixen els schemas del backend
+- `web/lib/api/lists.ts` + `web/lib/api/list-items.ts` — helpers d'API tipats
+- `web/app/providers.tsx` — QueryClientProvider (TanStack Query)
+- `web/app/(app)/lists/page.tsx` — pàgina de llistes amb TanStack Query
+- `web/app/(app)/lists/[id]/page.tsx` — detall de llista, `force-dynamic`
+- `web/app/(app)/home/page.tsx` — vista intel·ligent (due_date + priority)
+- `web/components/lists/ListCard.tsx` — card de llista
+- `web/components/lists/NewListModal.tsx` — modal de creació
+- `web/components/items/ItemRow.tsx` — fila d'ítem amb checkbox
+
 ---
 
 ## 5. Tests
 
 ### Estratègia general
-- **Cobertura mínima:** 90% (gates de CI)
 - **No testar implementació interna** — testar comportament observable
 - **Mocks:** Supabase sempre mockejar als tests; BD de test real (PostgreSQL)
 
-### Backend — configuració de tests
+### Patró de fixtures async (CRÍTIC — no canviar sense revisar)
+
+El patró correcte per a tests async amb FastAPI + asyncpg + pytest-asyncio és:
+
+- `test_engine` — `scope="session"`, NullPool, **sense** `drop_all`/`dispose()` al teardown
+- `db_session` — `scope="function"`, creat manualment amb `session = async_session()` **sense** `async with`
+- Els helpers de test que insereixen dades **HAN D'USAR `engine.begin()` directament**, MAI `db_session`
+- `autobegin=False` **NO** s'ha d'usar — trenca els helpers i causa `InvalidRequestError`
+
+```python
+# conftest.py — patró correcte
+@pytest_asyncio.fixture(scope="session")
+async def test_engine():
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO users ... ON CONFLICT DO NOTHING"))
+    yield engine
+    # NO drop_all ni dispose() al teardown — causa bloqueig al CI
+
+@pytest_asyncio.fixture
+async def db_session(test_engine):
+    async_session = async_sessionmaker(
+        test_engine, expire_on_commit=False, class_=AsyncSession
+    )
+    session = async_session()  # NO async with — causa 'different loop' errors
+    yield session
+
+# Helper de test — patró correcte
+async def _setup_list(engine: AsyncEngine, ...) -> uuid.UUID:
+    async with engine.begin() as conn:  # engine.begin(), NO db_session
+        await conn.execute(text("INSERT INTO users ... ON CONFLICT DO NOTHING"))
+        await conn.execute(text("INSERT INTO lists ..."), {...})
+    return list_id
+```
+
+### Seed de dades de test
+
+Els usuaris de test s'insereixen al fixture `test_engine` via `engine.begin()`:
+- `MOCK_USER_ID = 550e8400-e29b-41d4-a716-446655440000`
+- `OTHER_USER_ID = 650e8400-e29b-41d4-a716-446655440001`
+
+`ON CONFLICT DO NOTHING` fa que sigui idempotent.
+
+### BD de test
 
 **BD de test:** PostgreSQL real via GitHub Actions service (no SQLite)
 - Al CI: BD efímera arrencat per GitHub Actions
@@ -357,21 +423,28 @@ psql -U postgres -c "CREATE DATABASE test_db OWNER test_user;"
 - GitHub Actions ofereix serveis PostgreSQL gratuïts — zero cost addicional
 - Paritat total entre tests i producció
 
-**Patró de tests d'integració:**
-```python
-# Tots els tests d'integració reben el fixture `client`
-# que ja inclou la BD de test i els mocks de Supabase
+### Cobertura
 
-@pytest.mark.asyncio
-async def test_login_success(client, mock_supabase):
-    # mock_supabase ja configurat al conftest
-    response = await client.post("/api/v1/auth/login", json={
-        "email": "test@example.com",
-        "password": "password12345"
-    })
-    assert response.status_code == 200
-    assert "access_token" in response.json()
+El llindar de cobertura es configura al `ci.yml` (no al `pytest.ini`):
+```yaml
+run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=82
 ```
+
+Objectiu a llarg termini: 90%+. Llindar actual: 82% (pendent millorar al Sprint 3).
+
+### Dependències de versió crítiques
+
+| Paquet | Versió | Motiu |
+|--------|--------|-------|
+| fastapi | 0.116.* | 0.115 limita starlette <0.47 |
+| starlette | 0.47.2 | màxim compatible amb fastapi 0.116 |
+| pytest | 8.* | pytest-asyncio 0.24 no suporta pytest 9 |
+| pytest-asyncio | 0.24.* | única versió compatible amb pytest 8 |
+| python-jose | 3.4.0 | fix PYSEC-2024-232/233 |
+
+CVEs ignorats al pip-audit (incompatibilitat de dependències):
+- CVE-2025-71176 (pytest) — pytest-asyncio no suporta pytest 9 encara
+- CVE-2025-54121, CVE-2025-62727 (starlette) — fastapi 0.116 limita starlette <0.48
 
 ### Frontend — configuració de tests
 
@@ -408,6 +481,21 @@ module.exports = {
 ```
 feature/nom  →  PR a develop  →  CI verd  →  merge
 develop      →  PR a main     →  CI verd + 1 aprovació  →  merge  →  deploy staging
+```
+
+### pip-audit
+
+El step de pip-audit ha d'usar `&&` en una sola línia, **NO** bloc `|` multiline:
+
+```yaml
+# CORRECTE
+run: pip install pip-audit && pip-audit -r requirements.txt --ignore-vuln CVE-XXX --ignore-vuln PYSEC-XXX
+
+# INCORRECTE — el bloc | interpreta les dues comandes per separat i pip-audit
+# pot no trobar les dependències instal·lades al pas anterior
+run: |
+  pip install pip-audit
+  pip-audit -r requirements.txt --ignore-vuln CVE-XXX
 ```
 
 ### Comandes útils Windows (PowerShell)
@@ -560,51 +648,72 @@ Nova taula: device_tokens (user_id, token, platform)
 
 ---
 
-## 9. Lliçons apreses (Sprint 1)
+## 9. Lliçons apreses
 
 Documentades per evitar repetir els mateixos errors en sprints futurs.
 
-### Backend
+### Sprint 1 — Backend
 1. **`dependency_overrides` de FastAPI no funcionen si la connexió a la BD es fa en import-time.** El motor `asyncpg` intenta connectar en el moment que es crea l'engine, no quan s'executa una query. La solució és usar una BD de test real (PostgreSQL via GitHub Actions) en lloc de SQLite o mocks.
 
 2. **`ruff` F401 falla si `import pytest` apareix però `pytest` no s'usa directament.** Eliminar l'import o usar `pytest.mark.asyncio` explícitament al fitxer.
 
 3. **`SUPABASE_SERVICE_KEY` i `SUPABASE_ANON_KEY` han de ser claus DIFERENTS.** Si el `logout` o el `get_user` falla misteriosament, verificar que no s'ha posat la mateixa clau als dos camps.
 
-### Frontend
+### Sprint 1 — Frontend
 4. **`jest.config` ha de ser `.js`, no `.ts`.** El fitxer `.ts` requereix `ts-node` que no sempre és disponible al CI. Convertir a CommonJS resol el problema sense dependències addicionals.
 
 5. **El camp és `setupFilesAfterEnv`, no `setupFilesAfterFramework`.** El typo fa que Jest ignori el fitxer de setup silenciosament — 0 tests executats sense cap error obvi.
 
 6. **`next/babel` preset ja inclou TypeScript i JSX** — no cal instal·lar `@babel/preset-typescript` per separat.
 
-### CI/CD i Git
+### Sprint 1 — CI/CD i Git
 7. **Protecció de branques a GitHub requereix pla de pagament per a repositoris privats.** Solució: fer el repositori públic (el codi no conté secrets) o pagar GitHub Pro.
 
 8. **El PATH de `gh` CLI es perd entre sessions de PowerShell.** Sempre recarregar amb `$env:PATH = [System.Environment]::GetEnvironmentVariable(...)` abans d'usar `gh`.
 
 9. **Les comandes multilínia amb el backtick de PowerShell fallen si hi ha text al mateix cursor.** Executar cada línia per separat o usar un fitxer `.ps1`.
 
+### Sprint 2 — Tests async
+10. **Els helpers de test que usen `db_session` per inserir dades causen errors de loop i d'estat de sessió.** `db_session` és function-scoped i els commits explícits deixen la sessió en un estat incompatible amb el teardown. Solució: usar sempre `engine.begin()` + SQL raw als helpers.
+
+11. **`drop_all` i `dispose()` al teardown del fixture `test_engine` bloquegen el CI indefinidament** (30+ minuts observats). El teardown ha de ser buit — la BD efímera de GitHub Actions s'elimina sola en acabar el job.
+
+12. **`autobegin=False` a `async_sessionmaker` causa `InvalidRequestError`** als helpers que fan `conn.execute()` directament. No usar mai aquesta opció.
+
+13. **`async with async_session()` en lloc de `session = async_session()` causa errors de "different event loop"** als tests de llarga durada. El fixture `db_session` ha de crear la sessió sense context manager.
+
+### Sprint 2 — CI/CD
+14. **El step de pip-audit ha d'usar `&&` en una sola línia.** El bloc `|` multiline de YAML fa que pip-audit s'executi en un entorn on les dependències del pas anterior (`pip install pip-audit`) poden no estar disponibles correctament. Usar sempre la forma `pip install pip-audit && pip-audit ...` en una sola instrucció `run:`.
+
 ---
 
 ## 10. Estat actual del projecte
 
-### Sprint 1 — Auth (en curs)
+### ✅ Sprint 1 — Auth (completat)
 - [x] Estructura base backend + frontend
 - [x] Migracions Alembic (8 taules)
 - [x] Endpoints d'auth (register, login, logout, refresh, me)
-- [x] Middleware de protecció de rutes
+- [x] Middleware de protecció de rutes (Next.js)
 - [x] Stores Zustand (auth, offline)
 - [x] NavBar i SideMenu
 - [x] Onboarding 3 passos
-- [ ] CI en verd (pendent fix PostgreSQL + Jest)
-- [ ] Merge a develop
+- [x] CI en verd (PostgreSQL service + Jest)
+- [x] Merge a develop
 
-### Sprint 2 — CRUD de llistes i ítems (pendent)
+### ✅ Sprint 2 — CRUD de llistes i ítems (completat)
+- [x] Endpoints de llistes: GET, POST, GET/{id}, PATCH/{id}, DELETE/{id}
+- [x] Endpoints d'ítems: GET, POST, PATCH/{item_id}, DELETE/{item_id}
+- [x] `require_list_role("editor"|"owner")` — control d'accés per rol
+- [x] Frontend: ListCard, NewListModal, ItemRow amb TanStack Query
+- [x] Pàgines: `/lists`, `/lists/[id]`, `/home` (vista intel·ligent)
+- [x] Tests d'integració amb `engine.begin()` (patró definitiu)
+- [x] Cobertura de tests ≥ 82% (llindar CI)
+- [x] Merge a develop
+
 ### Sprint 3 — Col·laboració WebSockets (pendent)
 ### Sprint 4 — Offline i push notifications (pendent)
 
 ---
 
-*Última actualització: durant Sprint 1 — fix CI*
+*Última actualització: post Sprint 2*
 *Repositori: https://github.com/NackerWD/my-lists-app*
