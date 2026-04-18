@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -21,34 +22,34 @@ TEST_DATABASE_URL = os.environ.get(
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    """Engine compartit per tota la sessió de tests.
-    NullPool desactiva el pool de connexions — cada operació obre i tanca
-    la seva pròpia connexió, eliminant tots els problemes de loop asyncpg."""
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES
+                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
+                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+            ON CONFLICT (id) DO NOTHING
+        """))
+    yield engine
 
 
 @pytest_asyncio.fixture
 async def db_session(test_engine):
-    """Sessió nova per cada test. Fa rollback al final per aïllar els tests."""
     async_session = async_sessionmaker(
-        test_engine, expire_on_commit=False, class_=AsyncSession
+        test_engine,
+        expire_on_commit=False,
+        class_=AsyncSession,
     )
-    async with async_session() as session:
-        yield session
-        await session.rollback()
+    session = async_session()
+    yield session
 
 
 @dataclass
 class MockUser:
-    """Usuari mockat com a dataclass real per evitar conflictes amb SQLAlchemy i FastAPI."""
-
     id: uuid.UUID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
     email: str = "test@example.com"
     display_name: Optional[str] = "Test User"
@@ -100,3 +101,4 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
         yield ac
 
     app.dependency_overrides.clear()
+
