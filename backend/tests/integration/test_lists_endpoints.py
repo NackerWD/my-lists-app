@@ -55,6 +55,7 @@ async def _create_list_direct(
     )
     db.add(member)
     await db.commit()
+    await db.expunge_all()  # allibera objectes ORM per evitar connexions obertes al teardown
     return list_id
 
 

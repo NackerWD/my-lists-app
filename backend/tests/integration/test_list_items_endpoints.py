@@ -38,6 +38,7 @@ async def _setup_list(db: AsyncSession, title: str = "Test List") -> uuid.UUID:
     )
     db.add(member)
     await db.commit()
+    await db.expunge_all()  # allibera objectes ORM per evitar connexions obertes al teardown
     return list_id
 
 
@@ -60,6 +61,7 @@ async def _insert_item(
     )
     db.add(item)
     await db.commit()
+    await db.expunge_all()  # allibera objectes ORM per evitar connexions obertes al teardown
     return item_id
 
 
