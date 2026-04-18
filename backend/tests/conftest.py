@@ -30,32 +30,19 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    """Engine compartit per tota la sessió de tests.
-
-    Executa les migracions Alembic en un thread separat (alembic usa asyncio.run
-    internament, que crearia un loop nou — cal aïllar-ho del loop de pytest).
-    La migració 0003 s'encarrega de sembrar els usuaris de test quan
-    ENVIRONMENT=test, per tant no cal cap fixture db_user addicional.
-    """
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
-
-    # Estat net: eliminar totes les taules existents
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-
-    # Executar migracions Alembic en un thread (evita conflicte de loops)
-    def _run_migrations() -> None:
-        from alembic import command
-        from alembic.config import Config
-
-        cfg = Config("alembic.ini")
-        command.upgrade(cfg, "head")
-
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _run_migrations)
-
+        await conn.run_sync(Base.metadata.create_all)
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES
+                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
+                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+            ON CONFLICT (id) DO NOTHING
+        """))
     yield engine
-
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
