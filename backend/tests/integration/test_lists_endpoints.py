@@ -22,6 +22,7 @@ async def _create_list_direct(
     owner_id: str = "550e8400-e29b-41d4-a716-446655440000",
     member_id: str = "550e8400-e29b-41d4-a716-446655440000",
     role: str = "owner",
+    is_archived: bool = False,
 ) -> uuid.UUID:
     """Insereix llista + membre via engine.begin()."""
     list_id = uuid.uuid4()
@@ -36,8 +37,8 @@ async def _create_list_direct(
         """))
         await conn.execute(text("""
             INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
-            VALUES (:id, :owner_id, :title, false, :now, :now)
-        """), {"id": str(list_id), "owner_id": owner_id, "title": title, "now": now})
+            VALUES (:id, :owner_id, :title, :is_archived, :now, :now)
+        """), {"id": str(list_id), "owner_id": owner_id, "title": title, "is_archived": is_archived, "now": now})
         await conn.execute(text("""
             INSERT INTO list_members (id, list_id, user_id, role, joined_at)
             VALUES (:id, :list_id, :member_id, :role, :now)
@@ -53,6 +54,17 @@ class TestGetLists:
         response = await client.get("/api/v1/lists/")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
+
+    async def test_get_archived_lists(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _create_list_direct(
+            test_engine, title="Arxivada", is_archived=True
+        )
+        response = await client.get("/api/v1/lists/")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()]
+        assert str(list_id) not in ids
 
 
 class TestCreateList:
@@ -106,6 +118,20 @@ class TestUpdateList:
         )
         assert response.status_code == 200
         assert response.json()["title"] == "Actualitzat"
+
+    async def test_update_list_not_editor(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _create_list_direct(
+            test_engine,
+            owner_id="650e8400-e29b-41d4-a716-446655440001",
+            member_id="550e8400-e29b-41d4-a716-446655440000",
+            role="viewer",
+        )
+        response = await client.patch(
+            f"/api/v1/lists/{list_id}", json={"title": "Hack"}
+        )
+        assert response.status_code == 403
 
 
 class TestDeleteList:
