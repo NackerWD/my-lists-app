@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.security import get_current_user
 
@@ -11,19 +11,28 @@ router = APIRouter(tags=["list-invitations"])
 async def invite_to_list(
     list_id: uuid.UUID, current_user=Depends(get_current_user)
 ):
-    # TODO: implementar — envia una invitació per email
-    return {}
+    # Stub — implementar al Sprint 4
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"detail": "Not implemented — Sprint 4", "code": "NOT_IMPLEMENTED"},
+    )
 
 
 @router.get("/invitations/{token}")
 async def get_invitation(token: str):
-    # TODO: implementar — retorna detalls d'una invitació per token
-    return {}
+    # Stub — implementar al Sprint 4
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"detail": "Not implemented — Sprint 4", "code": "NOT_IMPLEMENTED"},
+    )
 
 
 @router.post("/invitations/{token}/accept")
 async def accept_invitation(
     token: str, current_user=Depends(get_current_user)
 ):
-    # TODO: implementar — accepta una invitació i afegeix l'usuari a la llista
-    return {}
+    # Stub — implementar al Sprint 4
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"detail": "Not implemented — Sprint 4", "code": "NOT_IMPLEMENTED"},
+    )
