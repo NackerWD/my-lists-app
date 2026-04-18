@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -20,6 +19,7 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db",
 )
 
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Un sol event loop per a tota la sessió — evita 'attached to a different loop'."""
@@ -27,16 +27,35 @@ def event_loop():
     yield loop
     loop.close()
 
+
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
     """Engine compartit per tota la sessió de tests.
-    NullPool desactiva el pool de connexions — cada operació obre i tanca
-    la seva pròpia connexió, eliminant tots els problemes de loop asyncpg."""
+
+    Executa les migracions Alembic en un thread separat (alembic usa asyncio.run
+    internament, que crearia un loop nou — cal aïllar-ho del loop de pytest).
+    La migració 0003 s'encarrega de sembrar els usuaris de test quan
+    ENVIRONMENT=test, per tant no cal cap fixture db_user addicional.
+    """
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
+
+    # Estat net: eliminar totes les taules existents
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Executar migracions Alembic en un thread (evita conflicte de loops)
+    def _run_migrations() -> None:
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config("alembic.ini")
+        command.upgrade(cfg, "head")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run_migrations)
+
     yield engine
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
@@ -51,40 +70,6 @@ async def db_session(test_engine):
     async with async_session() as session:
         yield session
         await session.rollback()
-
-
-@pytest_asyncio.fixture(scope="session")
-async def db_user(test_engine):
-    """Insereix els usuaris de test una sola vegada per a tota la sessió.
-    Usa test_engine.begin() directament — el context manager fa commit()
-    automàticament en sortir, i ON CONFLICT DO NOTHING el fa idempotent.
-    Scope 'session' garanteix que les files existeixin per a tots els tests,
-    independentment del rollback dels db_session individuals."""
-    async with test_engine.begin() as conn:
-        await conn.execute(text("""
-            INSERT INTO users (id, email, display_name, created_at)
-            VALUES (
-                '550e8400-e29b-41d4-a716-446655440000',
-                'test@example.com',
-                'Test User',
-                NOW()
-            )
-            ON CONFLICT (id) DO NOTHING
-        """))
-        await conn.execute(text("""
-            INSERT INTO users (id, email, display_name, created_at)
-            VALUES (
-                '650e8400-e29b-41d4-a716-446655440001',
-                'other@example.com',
-                'Other User',
-                NOW()
-            )
-            ON CONFLICT (id) DO NOTHING
-        """))
-    return {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
-        "other_id": "650e8400-e29b-41d4-a716-446655440001",
-    }
 
 
 @dataclass
@@ -127,7 +112,7 @@ def mock_supabase():
 
 
 @pytest_asyncio.fixture
-async def client(db_session: AsyncSession, mock_current_user: MockUser,db_user):
+async def client(db_session: AsyncSession, mock_current_user: MockUser):
     from app.core.database import get_db
     from app.core.security import get_current_user
     from main import app

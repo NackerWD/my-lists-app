@@ -2,8 +2,8 @@
 La BD és real (PostgreSQL via NullPool). Supabase i get_current_user estan
 mocked via el fixture `client` del conftest.
 
-Nota: les insercions usen ON CONFLICT DO NOTHING perquè, amb NullPool, els
-commits dins dels tests no es reverteixen entre tests (no hi ha savepoints).
+Els usuaris de test (MOCK_USER_ID i OTHER_USER_ID) existeixen a la BD gràcies
+a la migració 0003_seed_test_users (només activa quan ENVIRONMENT=test).
 """
 import uuid
 from datetime import datetime, timezone
@@ -26,7 +26,8 @@ async def _create_list_direct(
     role: str = "owner",
 ) -> uuid.UUID:
     """Insereix una llista + membre directament a la BD. Retorna l'id de la llista.
-    Assumeix que els usuaris (owner_id, member_id) ja existeixen a la BD."""
+    Assumeix que els usuaris (owner_id, member_id) ja existeixen a la BD
+    (sembrats per la migració 0003)."""
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     lst = List(
@@ -50,7 +51,7 @@ async def _create_list_direct(
 
 
 class TestGetLists:
-    async def test_get_lists_returns_array(self, client: AsyncClient, db_user) -> None:
+    async def test_get_lists_returns_array(self, client: AsyncClient) -> None:
         """Comprova que el endpoint retorna 200 i una llista JSON.
         No s'assumeix que la BD estigui buida perquè tests anteriors poden
         haver commitejat llistes (NullPool no reverteix commits)."""
@@ -60,7 +61,7 @@ class TestGetLists:
 
 
 class TestCreateList:
-    async def test_create_list(self, client: AsyncClient, db_user) -> None:
+    async def test_create_list(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/lists/", json={"title": "La meva llista"})
         assert response.status_code == 201
         data = response.json()
@@ -68,14 +69,14 @@ class TestCreateList:
         assert data["title"] == "La meva llista"
         assert data["member_count"] == 1
 
-    async def test_create_list_invalid(self, client: AsyncClient, db_user) -> None:
+    async def test_create_list_invalid(self, client: AsyncClient) -> None:
         response = await client.post("/api/v1/lists/", json={})
         assert response.status_code == 422
 
 
 class TestGetListById:
     async def test_get_list_by_id(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _create_list_direct(db_session, title="Detall")
         response = await client.get(f"/api/v1/lists/{list_id}")
@@ -84,12 +85,12 @@ class TestGetListById:
         assert data["title"] == "Detall"
         assert str(data["id"]) == str(list_id)
 
-    async def test_get_list_not_found(self, client: AsyncClient, db_user) -> None:
+    async def test_get_list_not_found(self, client: AsyncClient) -> None:
         response = await client.get(f"/api/v1/lists/{uuid.uuid4()}")
         assert response.status_code == 404
 
     async def test_get_list_not_member(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         # Crea llista sense afegir mock_current_user com a membre
         list_id = await _create_list_direct(
@@ -101,7 +102,7 @@ class TestGetListById:
 
 class TestUpdateList:
     async def test_update_list(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _create_list_direct(db_session, title="Original")
         response = await client.patch(
@@ -113,7 +114,7 @@ class TestUpdateList:
 
 class TestDeleteList:
     async def test_delete_list(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _create_list_direct(db_session)
         response = await client.delete(f"/api/v1/lists/{list_id}")
@@ -121,7 +122,7 @@ class TestDeleteList:
         assert response.json() == {"deleted": True}
 
     async def test_delete_list_not_owner(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         # Crea llista amb OTHER_USER com a owner; MOCK_USER és viewer
         list_id = await _create_list_direct(

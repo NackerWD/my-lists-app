@@ -2,8 +2,8 @@
 La BD és real (PostgreSQL via NullPool). Supabase i get_current_user estan
 mocked via el fixture `client` del conftest.
 
-Nota: les insercions usen ON CONFLICT DO NOTHING perquè, amb NullPool, els
-commits dins dels tests no es reverteixen entre tests (no hi ha savepoints).
+Els usuaris de test existeixen a la BD gràcies a la migració 0003_seed_test_users
+(només activa quan ENVIRONMENT=test).
 """
 import uuid
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 
 async def _setup_list(db: AsyncSession, title: str = "Test List") -> uuid.UUID:
     """Insereix llista + membre (owner) i retorna l'id de la llista.
-    Assumeix que MOCK_USER_ID ja existeix a la BD (fixture db_user)."""
+    Assumeix que MOCK_USER_ID ja existeix a la BD (migració 0003)."""
     now = datetime.now(timezone.utc)
     list_id = uuid.uuid4()
     lst = List(id=list_id, owner_id=MOCK_USER_ID, title=title, updated_at=now, created_at=now)
@@ -62,7 +62,7 @@ async def _insert_item(
 
 class TestGetItems:
     async def test_get_items_empty(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         response = await client.get(f"/api/v1/lists/{list_id}/items")
@@ -72,7 +72,7 @@ class TestGetItems:
 
 class TestCreateItem:
     async def test_create_item(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         response = await client.post(
@@ -86,7 +86,7 @@ class TestCreateItem:
         assert "id" in data
 
     async def test_create_item_invalid(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         response = await client.post(f"/api/v1/lists/{list_id}/items", json={})
@@ -95,7 +95,7 @@ class TestCreateItem:
 
 class TestUpdateItem:
     async def test_update_item_check(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         item_id = await _insert_item(db_session, list_id, "Tasca pendent")
@@ -107,7 +107,7 @@ class TestUpdateItem:
         assert response.json()["is_checked"] is True
 
     async def test_update_item_priority(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         item_id = await _insert_item(db_session, list_id, "Tasca important")
@@ -121,7 +121,7 @@ class TestUpdateItem:
 
 class TestDeleteItem:
     async def test_delete_item(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         item_id = await _insert_item(db_session, list_id)
@@ -132,7 +132,7 @@ class TestDeleteItem:
 
 class TestItemsOrdering:
     async def test_items_ordered_by_position(
-        self, client: AsyncClient, db_session: AsyncSession, db_user
+        self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         list_id = await _setup_list(db_session)
         # Inserir en ordre invers perquè el GET els retorni ordenats per position
