@@ -1,4 +1,3 @@
-import asyncio
 import os
 import uuid
 from dataclasses import dataclass
@@ -19,15 +18,6 @@ TEST_DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db",
 )
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Un sol event loop per a tota la sessió — evita 'attached to a different loop'."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
