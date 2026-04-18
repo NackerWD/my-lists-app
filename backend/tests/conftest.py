@@ -57,7 +57,6 @@ async def db_session(test_engine):
     )
     async with async_session() as session:
         yield session
-        await session.rollback()
 
 
 @dataclass
