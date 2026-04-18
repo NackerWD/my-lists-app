@@ -28,6 +28,14 @@ async def _create_list_direct(
     """Insereix una llista + membre directament a la BD. Retorna l'id de la llista.
     Assumeix que els usuaris (owner_id, member_id) ja existeixen a la BD
     (sembrats per la migració 0003)."""
+    from sqlalchemy import text
+    await db.execute(text("""
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES 
+            ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
+            ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+        ON CONFLICT (id) DO NOTHING
+    """))
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     lst = List(
