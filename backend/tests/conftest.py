@@ -52,6 +52,26 @@ async def db_session(test_engine):
         await session.rollback()
 
 
+@pytest_asyncio.fixture
+async def db_user(db_session: AsyncSession):
+    """Insereix el mock_current_user a la BD per satisfer les FK.
+    Usa ON CONFLICT DO NOTHING perquè els commits persisteixen entre tests
+    (NullPool no reverteix transaccions ja commitejades)."""
+    from sqlalchemy import text
+
+    await db_session.execute(text("""
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES (
+            '550e8400-e29b-41d4-a716-446655440000',
+            'test@example.com',
+            'Test User',
+            NOW()
+        )
+        ON CONFLICT (id) DO NOTHING
+    """))
+    await db_session.commit()
+
+
 @dataclass
 class MockUser:
     """Usuari mockat com a dataclass real per evitar conflictes amb SQLAlchemy i FastAPI."""
