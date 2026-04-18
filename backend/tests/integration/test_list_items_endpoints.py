@@ -69,6 +69,29 @@ async def _insert_item(
     return item_id
 
 
+async def _list_owned_only_by_other(engine: AsyncEngine) -> uuid.UUID:
+    """Llista on MOCK_USER no és membre (només OTHER és owner)."""
+    list_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES
+                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
+                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+            ON CONFLICT (id) DO NOTHING
+        """))
+        await conn.execute(text("""
+            INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
+            VALUES (:id, '650e8400-e29b-41d4-a716-446655440001', 'Alien List', false, :now, :now)
+        """), {"id": str(list_id), "now": now})
+        await conn.execute(text("""
+            INSERT INTO list_members (id, list_id, user_id, role, joined_at)
+            VALUES (:id, :list_id, '650e8400-e29b-41d4-a716-446655440001', 'owner', :now)
+        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "now": now})
+    return list_id
+
+
 class TestGetItems:
     async def test_get_items_empty(
         self, client: AsyncClient, test_engine: AsyncEngine
@@ -77,6 +100,20 @@ class TestGetItems:
         response = await client.get(f"/api/v1/lists/{list_id}/items")
         assert response.status_code == 200
         assert response.json() == []
+
+    async def test_get_items_list_not_found(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        missing = uuid.uuid4()
+        response = await client.get(f"/api/v1/lists/{missing}/items")
+        assert response.status_code == 404
+
+    async def test_get_items_not_member(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _list_owned_only_by_other(test_engine)
+        response = await client.get(f"/api/v1/lists/{list_id}/items")
+        assert response.status_code == 403
 
 
 class TestCreateItem:
@@ -116,6 +153,16 @@ class TestCreateItem:
         assert r2.status_code == 201
         assert r2.json()["position"] == 1
 
+    async def test_create_item_list_not_found(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        missing = uuid.uuid4()
+        response = await client.post(
+            f"/api/v1/lists/{missing}/items",
+            json={"content": "Orfe"},
+        )
+        assert response.status_code == 404
+
 
 class TestUpdateItem:
     async def test_update_item_check(
@@ -153,6 +200,41 @@ class TestUpdateItem:
         )
         assert response.status_code == 403
 
+    async def test_update_item_wrong_list_id(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_a = await _setup_list(test_engine, title="A")
+        list_b = await _setup_list(test_engine, title="B")
+        item_id = await _insert_item(test_engine, list_a, "Només a A")
+        response = await client.patch(
+            f"/api/v1/lists/{list_b}/items/{item_id}",
+            json={"content": "Hack"},
+        )
+        assert response.status_code == 404
+
+    async def test_update_item_multiple_fields(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _setup_list(test_engine)
+        item_id = await _insert_item(test_engine, list_id, "Original")
+        due = "2026-06-15T12:00:00+00:00"
+        remind = "2026-06-16T09:00:00+00:00"
+        response = await client.patch(
+            f"/api/v1/lists/{list_id}/items/{item_id}",
+            json={
+                "content": "Actualitzat",
+                "position": 5,
+                "due_date": due,
+                "remind_at": remind,
+                "priority": "low",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == "Actualitzat"
+        assert data["position"] == 5
+        assert data["priority"] == "low"
+
 
 class TestDeleteItem:
     async def test_delete_item(
@@ -172,6 +254,16 @@ class TestDeleteItem:
             f"/api/v1/lists/{list_id}/items/{uuid.uuid4()}"
         )
         assert response.status_code == 404
+
+    async def test_delete_item_viewer_forbidden(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _setup_list(test_engine, member_role="viewer")
+        item_id = await _insert_item(test_engine, list_id, "Només lectura")
+        response = await client.delete(
+            f"/api/v1/lists/{list_id}/items/{item_id}"
+        )
+        assert response.status_code == 403
 
 
 class TestItemsOrdering:

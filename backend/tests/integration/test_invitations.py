@@ -97,6 +97,19 @@ class TestInviteMember:
         )
         assert response.status_code == 403
 
+    async def test_invite_member_viewer_role(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _setup_list(test_engine)
+        response = await client.post(
+            f"/api/v1/lists/{list_id}/invite",
+            json={"email": "viewer@example.com", "role": "viewer"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "/invite/" in data["link"]
+        assert "invitation_id" in data
+
 
 class TestGetInvitation:
     async def test_get_invitation(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
@@ -121,6 +134,19 @@ class TestGetInvitation:
         past = datetime.now(timezone.utc) - timedelta(days=8)
         await _insert_invitation(test_engine, list_id, token, expires_at=past)
 
+        response = await client.get(f"/api/v1/invitations/{token}")
+        assert response.status_code == 410
+
+    async def test_get_invitation_status_expired_field(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        """410 per status='expired' encara que expires_at sigui futur."""
+        list_id = await _setup_list(test_engine)
+        token = str(uuid.uuid4())
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+        await _insert_invitation(
+            test_engine, list_id, token, status="expired", expires_at=future
+        )
         response = await client.get(f"/api/v1/invitations/{token}")
         assert response.status_code == 410
 
@@ -161,5 +187,27 @@ class TestAcceptInvitation:
         past = datetime.now(timezone.utc) - timedelta(days=8)
         await _insert_invitation(test_engine, list_id, token, expires_at=past)
 
+        response = await client.post(f"/api/v1/invitations/{token}/accept")
+        assert response.status_code == 410
+
+    async def test_accept_invitation_not_found(self, client: AsyncClient) -> None:
+        response = await client.post(
+            f"/api/v1/invitations/{uuid.uuid4()}/accept"
+        )
+        assert response.status_code == 404
+
+    async def test_accept_invitation_already_accepted_status(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _setup_list(
+            test_engine,
+            owner_id="650e8400-e29b-41d4-a716-446655440001",
+            member_id="650e8400-e29b-41d4-a716-446655440001",
+        )
+        token = str(uuid.uuid4())
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+        await _insert_invitation(
+            test_engine, list_id, token, status="accepted", expires_at=future
+        )
         response = await client.post(f"/api/v1/invitations/{token}/accept")
         assert response.status_code == 410

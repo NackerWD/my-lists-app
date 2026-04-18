@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
+THIRD_USER_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 
 
 async def _setup_list(
@@ -33,6 +34,15 @@ async def _setup_list(
             VALUES (:id, :list_id, :user_id, 'owner', :now)
         """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "user_id": owner_id, "now": now})
     return list_id
+
+
+async def _ensure_third_user(engine: AsyncEngine) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO users (id, email, display_name, created_at)
+            VALUES (:id, 'third@example.com', 'Third User', NOW())
+            ON CONFLICT (id) DO NOTHING
+        """), {"id": str(THIRD_USER_ID)})
 
 
 async def _add_member(
@@ -83,6 +93,28 @@ class TestGetMembers:
         response = await client.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 403
 
+    async def test_get_members_three_users(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        await _ensure_third_user(test_engine)
+        list_id = await _setup_list(test_engine)
+        await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
+        await _add_member(test_engine, list_id, str(THIRD_USER_ID), "editor")
+
+        response = await client.get(f"/api/v1/lists/{list_id}/members")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+        for m in data:
+            assert "email" in m
+            assert "display_name" in m
+            assert "role" in m
+            assert m["user_id"] in (
+                str(MOCK_USER_ID),
+                str(OTHER_USER_ID),
+                str(THIRD_USER_ID),
+            )
+
 
 class TestRemoveMember:
     async def test_remove_member(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
@@ -92,6 +124,12 @@ class TestRemoveMember:
         response = await client.delete(f"/api/v1/lists/{list_id}/members/{OTHER_USER_ID}")
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
+
+        after = await client.get(f"/api/v1/lists/{list_id}/members")
+        assert after.status_code == 200
+        ids_after = {m["user_id"] for m in after.json()}
+        assert str(OTHER_USER_ID) not in ids_after
+        assert str(MOCK_USER_ID) in ids_after
 
     async def test_remove_owner(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)

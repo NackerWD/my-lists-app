@@ -46,6 +46,22 @@ async def _create_list_direct(
     return list_id
 
 
+async def _add_member_and_items(engine: AsyncEngine, list_id: uuid.UUID) -> None:
+    """Afegeix un segon membre i dos ítems per provar member_count / item_count."""
+    now = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            INSERT INTO list_members (id, list_id, user_id, role, joined_at)
+            VALUES (:id, :list_id, '650e8400-e29b-41d4-a716-446655440001', 'editor', :now)
+            ON CONFLICT (list_id, user_id) DO NOTHING
+        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "now": now})
+        for pos, content in enumerate(("Un", "Dos")):
+            await conn.execute(text("""
+                INSERT INTO list_items (id, list_id, created_by, content, is_checked, position, created_at, updated_at)
+                VALUES (:id, :list_id, '550e8400-e29b-41d4-a716-446655440000', :content, false, :pos, :now, :now)
+            """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "content": content, "pos": pos, "now": now})
+
+
 class TestGetLists:
     async def test_get_lists_returns_array(self, client: AsyncClient) -> None:
         """Comprova que el endpoint retorna 200 i una llista JSON.
@@ -107,6 +123,17 @@ class TestGetListById:
         response = await client.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 403
 
+    async def test_get_list_with_counts(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _create_list_direct(test_engine, title="Amb comptadors")
+        await _add_member_and_items(test_engine, list_id)
+        response = await client.get(f"/api/v1/lists/{list_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["member_count"] == 2
+        assert data["item_count"] == 2
+
 
 class TestUpdateList:
     async def test_update_list(
@@ -132,6 +159,24 @@ class TestUpdateList:
             f"/api/v1/lists/{list_id}", json={"title": "Hack"}
         )
         assert response.status_code == 403
+
+    async def test_update_list_description_is_archived(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _create_list_direct(test_engine, title="Títol inicial")
+        response = await client.patch(
+            f"/api/v1/lists/{list_id}",
+            json={
+                "title": "Nou títol",
+                "description": "Desc actualitzada",
+                "is_archived": True,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Nou títol"
+        assert data["description"] == "Desc actualitzada"
+        assert data["is_archived"] is True
 
 
 class TestDeleteList:
