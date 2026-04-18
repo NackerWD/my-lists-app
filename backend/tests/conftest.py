@@ -48,15 +48,9 @@ async def db_session(test_engine):
         autobegin=False,
     )
     session = async_session()
-    try:
-        yield session
-    finally:
-        try:
-            await session.close()
-        except Exception:
-            # NullPool teardown: connexió tancada en un loop diferent.
-            # Tots els commits s'han executat correctament — segur ignorar.
-            pass
+    yield session
+    # No tanquem explícitament — NullPool ja tanca les connexions
+    # després de cada operació. Tancar aquí causa 'different loop' errors.
 
 
 @dataclass
