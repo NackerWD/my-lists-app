@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.database import Base
@@ -18,6 +18,7 @@ TEST_DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db",
 )
+
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
@@ -49,14 +50,10 @@ async def db_session(test_engine):
     )
     session = async_session()
     yield session
-    # No tanquem explícitament — NullPool ja tanca les connexions
-    # després de cada operació. Tancar aquí causa 'different loop' errors.
 
 
 @dataclass
 class MockUser:
-    """Usuari mockat com a dataclass real per evitar conflictes amb SQLAlchemy i FastAPI."""
-
     id: uuid.UUID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
     email: str = "test@example.com"
     display_name: Optional[str] = "Test User"
@@ -108,5 +105,4 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
         yield ac
 
     app.dependency_overrides.clear()
-
 
