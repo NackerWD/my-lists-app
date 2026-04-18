@@ -57,3 +57,39 @@ export interface ListItemUpdate {
   priority?: "high" | "medium" | "low" | null;
   remind_at?: string | null;
 }
+
+export interface MemberResponse {
+  id: string;
+  list_id: string;
+  user_id: string;
+  role: "owner" | "editor" | "viewer";
+  joined_at: string;
+  email: string;
+  display_name: string | null;
+}
+
+export interface InvitationResponse {
+  invitation_id: string;
+  list_id: string;
+  list_title: string | null;
+  invited_by: string;
+  email: string;
+  role: "editor" | "viewer";
+  status: "pending" | "accepted" | "expired";
+  expires_at: string;
+}
+
+export interface InviteRequest {
+  email: string;
+  role: "editor" | "viewer";
+}
+
+export interface InviteLinkResponse {
+  invitation_id: string;
+  link: string;
+}
+
+export interface AcceptInvitationResponse {
+  list_id: string;
+  role: string;
+}

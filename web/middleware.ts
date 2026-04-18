@@ -6,6 +6,7 @@ const PUBLIC_PATHS = ["/login", "/register", "/onboarding"];
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
   if (pathname.startsWith("/invitations/")) return true;
+  if (pathname.startsWith("/invite/")) return true;
   if (pathname.startsWith("/_next/") || pathname.startsWith("/api/")) return true;
   if (pathname.includes(".")) return true; // static assets
   return false;

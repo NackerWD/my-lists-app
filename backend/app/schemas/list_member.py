@@ -24,3 +24,13 @@ class ListMemberResponse(ListMemberBase):
     list_id: uuid.UUID
     user_id: uuid.UUID
     joined_at: datetime
+
+
+class ListMemberWithUserResponse(BaseModel):
+    id: uuid.UUID
+    list_id: uuid.UUID
+    user_id: uuid.UUID
+    role: Literal["owner", "editor", "viewer"]
+    joined_at: datetime
+    email: str
+    display_name: str | None = None

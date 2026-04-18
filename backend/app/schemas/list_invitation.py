@@ -9,8 +9,13 @@ class ListInvitationBase(BaseModel):
     email: EmailStr
 
 
+class ListInviteRequest(BaseModel):
+    email: EmailStr
+    role: Literal["editor", "viewer"] = "viewer"
+
+
 class ListInvitationCreate(ListInvitationBase):
-    pass
+    role: Literal["editor", "viewer"] = "viewer"
 
 
 class ListInvitationUpdate(BaseModel):
@@ -24,6 +29,7 @@ class ListInvitationResponse(ListInvitationBase):
     list_id: uuid.UUID
     invited_by: uuid.UUID
     token: str
+    role: Literal["editor", "viewer"]
     status: Literal["pending", "accepted", "expired"]
     expires_at: datetime
     created_at: datetime
