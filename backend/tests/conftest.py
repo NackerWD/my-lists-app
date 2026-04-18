@@ -1,4 +1,4 @@
-﻿import os
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,9 +35,6 @@ async def test_engine():
             ON CONFLICT (id) DO NOTHING
         """))
     yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -104,3 +101,4 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
         yield ac
 
     app.dependency_overrides.clear()
+
