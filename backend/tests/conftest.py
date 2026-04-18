@@ -127,7 +127,7 @@ def mock_supabase():
 
 
 @pytest_asyncio.fixture
-async def client(db_session: AsyncSession, mock_current_user: MockUser):
+async def client(db_session: AsyncSession, mock_current_user: MockUser,db_user):
     from app.core.database import get_db
     from app.core.security import get_current_user
     from main import app
