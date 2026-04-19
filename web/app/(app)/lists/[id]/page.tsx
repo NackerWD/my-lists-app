@@ -14,13 +14,18 @@ import { getList } from "@/lib/api/lists";
 import { createItem, deleteItem, getItems, updateItem } from "@/lib/api/list-items";
 import { getMembers, removeMember } from "@/lib/api/members";
 import { useListSocket } from "@/lib/hooks/useListSocket";
+import { useOfflineQueue } from "@/lib/hooks/useOfflineQueue";
 import { supabase } from "@/lib/supabase";
+import type { ListItemResponse } from "@/lib/types";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function ListDetailPage() {
   const params = useParams();
   const router = useRouter();
   const listId = params.id as string;
   const queryClient = useQueryClient();
+  const { isOnline, enqueue } = useOfflineQueue();
   const [menuOpen, setMenuOpen] = useState(false);
   const [newContent, setNewContent] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -51,27 +56,90 @@ export default function ListDetailPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (content: string) => createItem(listId, { content }),
+    mutationFn: async (content: string) => {
+      if (!isOnline) {
+        let optimistic: ListItemResponse | null = null;
+        queryClient.setQueryData<ListItemResponse[]>(["items", listId], (old) => {
+          const prev = old ?? [];
+          optimistic = {
+            id: `local-${Date.now()}`,
+            list_id: listId,
+            created_by: null,
+            content,
+            is_checked: false,
+            position: prev.length,
+            due_date: null,
+            priority: null,
+            remind_at: null,
+            metadata_: null,
+            created_at: new Date().toISOString(),
+            updated_at: null,
+          };
+          return [...prev, optimistic];
+        });
+        await enqueue({
+          method: "POST",
+          url: `${API_BASE}/api/v1/lists/${listId}/items`,
+          body: { content },
+          queryKeys: [["items", listId], ["lists"]],
+        });
+        if (!optimistic) throw new Error("Optimistic item not created");
+        return optimistic;
+      }
+      return createItem(listId, { content });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", listId] });
-      queryClient.invalidateQueries({ queryKey: ["lists"] });
       setNewContent("");
+      if (isOnline) {
+        queryClient.invalidateQueries({ queryKey: ["items", listId] });
+        queryClient.invalidateQueries({ queryKey: ["lists"] });
+      }
     },
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ id, checked }: { id: string; checked: boolean }) =>
-      updateItem(listId, id, { is_checked: checked }),
+    mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
+      if (!isOnline) {
+        queryClient.setQueryData<ListItemResponse[]>(["items", listId], (old) =>
+          (old ?? []).map((it) => (it.id === id ? { ...it, is_checked: checked } : it))
+        );
+        await enqueue({
+          method: "PATCH",
+          url: `${API_BASE}/api/v1/lists/${listId}/items/${id}`,
+          body: { is_checked: checked },
+          queryKeys: [["items", listId]],
+        });
+        return { id, checked };
+      }
+      return updateItem(listId, id, { is_checked: checked });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", listId] });
+      if (isOnline) {
+        queryClient.invalidateQueries({ queryKey: ["items", listId] });
+      }
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (itemId: string) => deleteItem(listId, itemId),
+    mutationFn: async (itemId: string) => {
+      if (!isOnline) {
+        queryClient.setQueryData<ListItemResponse[]>(["items", listId], (old) =>
+          (old ?? []).filter((it) => it.id !== itemId)
+        );
+        await enqueue({
+          method: "DELETE",
+          url: `${API_BASE}/api/v1/lists/${listId}/items/${itemId}`,
+          queryKeys: [["items", listId], ["lists"]],
+        });
+        return;
+      }
+      return deleteItem(listId, itemId);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", listId] });
-      queryClient.invalidateQueries({ queryKey: ["lists"] });
+      if (isOnline) {
+        queryClient.invalidateQueries({ queryKey: ["items", listId] });
+        queryClient.invalidateQueries({ queryKey: ["lists"] });
+      }
     },
   });
 

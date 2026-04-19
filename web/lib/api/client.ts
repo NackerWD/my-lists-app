@@ -1,25 +1,22 @@
 import { enqueueOperation } from "@/lib/offline/queue";
-import { supabase } from "@/lib/supabase";
+import { getAuthHeaders, refreshAccessToken } from "@/lib/api/session-headers";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// Refresca la sessió de Supabase i retorna el nou access token
-async function refreshAccessToken(): Promise<boolean> {
-  const { data, error } = await supabase.auth.refreshSession();
-  return !error && !!data.session;
-}
+export { getAuthHeaders } from "@/lib/api/session-headers";
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    headers["Authorization"] = `Bearer ${session.access_token}`;
+function inferQueryKeysForPath(path: string): string[][] {
+  try {
+    const u = new URL(path, BASE_URL);
+    const p = u.pathname;
+    const m = p.match(/^\/api\/v1\/lists\/([^/]+)\/items(?:\/([^/]+))?$/);
+    if (m) {
+      return [["items", m[1]], ["lists"]];
+    }
+  } catch {
+    /* ignore */
   }
-  return headers;
+  return [];
 }
 
 async function request<T>(
@@ -38,7 +35,12 @@ async function request<T>(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    await enqueueOperation({ method, url: `${BASE_URL}${path}`, body });
+    await enqueueOperation({
+      method: method as "POST" | "PATCH" | "DELETE",
+      url: `${BASE_URL}${path}`,
+      body,
+      queryKeys: inferQueryKeysForPath(path),
+    });
     throw new Error("Network error — operation queued");
   }
 
@@ -47,7 +49,6 @@ async function request<T>(
     if (refreshed) {
       return request<T>(method, path, body, false);
     }
-    // Token no refrescable — el store s'encarregarà del logout
   }
 
   if (!response.ok) {

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.limiter import limiter
+from app.scheduler import start_scheduler, stop_scheduler
 from app.ws.handler import ws_router
 
 if settings.SENTRY_DSN:
@@ -19,11 +22,22 @@ if settings.SENTRY_DSN:
 docs_url = "/docs" if settings.ENVIRONMENT == "development" else None
 redoc_url = "/redoc" if settings.ENVIRONMENT == "development" else None
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if settings.SCHEDULER_ENABLED:
+        start_scheduler()
+    yield
+    if settings.SCHEDULER_ENABLED:
+        stop_scheduler()
+
+
 app = FastAPI(
     title="Lists API",
     version="0.1.0",
     docs_url=docs_url,
     redoc_url=redoc_url,
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
 import { get, patch, post } from "@/lib/api/client";
+import { registerPushNotifications } from "@/lib/notifications";
 
 interface User {
   id: string;
@@ -65,6 +66,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
+
+      void registerPushNotifications(tokens.access_token).catch(() => {});
 
       const profile = await get<UserProfileResponse>("/api/v1/auth/me");
       set({ user: mapProfile(profile), isAuthenticated: true });
@@ -149,6 +152,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
     try {
       const profile = await get<UserProfileResponse>("/api/v1/auth/me");
       set({ user: mapProfile(profile), isAuthenticated: true });
+      if (session.access_token) {
+        void registerPushNotifications(session.access_token).catch(() => {});
+      }
     } catch {
       set({ user: null, isAuthenticated: false });
     }

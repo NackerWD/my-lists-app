@@ -35,6 +35,7 @@ class ListItemResponse(BaseModel):
     due_date: datetime | None
     priority: str | None
     remind_at: datetime | None
+    reminded_at: datetime | None = None
     metadata_: dict | None
     created_at: datetime
     updated_at: datetime | None

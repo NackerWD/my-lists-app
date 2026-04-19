@@ -35,6 +35,7 @@ export interface ListItemResponse {
   due_date: string | null;
   priority: "high" | "medium" | "low" | null;
   remind_at: string | null;
+  reminded_at?: string | null;
   metadata_: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;

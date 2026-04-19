@@ -1,4 +1,8 @@
 import os
+
+# Evita engegar APScheduler als tests (lifespan de main).
+os.environ.setdefault("SCHEDULER_ENABLED", "false")
+
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
