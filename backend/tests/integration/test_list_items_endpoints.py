@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+from tests.integration.db_asserts import (
+    assert_list_and_membership,
+    assert_list_items_count,
+)
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
@@ -107,12 +112,35 @@ async def _list_owned_only_by_other(engine: AsyncEngine) -> uuid.UUID:
 
 class TestGetItems:
     async def test_get_items_empty(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await assert_list_items_count(db_session, list_id, 0)
         response = await client_owner.get(f"/api/v1/lists/{list_id}/items")
         assert response.status_code == 200
         assert response.json() == []
+
+    async def test_get_items_returns_inserted_items(
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
+    ) -> None:
+        list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await _insert_item(test_engine, list_id, "Alpha", position=0)
+        await _insert_item(test_engine, list_id, "Beta", position=1)
+        await assert_list_items_count(db_session, list_id, 2)
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/items")
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 2
+        assert items[0]["content"] == "Alpha"
+        assert items[1]["content"] == "Beta"
 
     async def test_get_items_list_not_found(
         self, client_owner: AsyncClient, test_engine: AsyncEngine

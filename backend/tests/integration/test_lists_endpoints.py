@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+from tests.integration.db_asserts import (
+    assert_list_and_membership,
+    assert_list_items_count,
+    assert_list_members_count_at_least,
+)
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
@@ -19,22 +25,26 @@ OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
 async def _create_list_direct(
     engine: AsyncEngine,
     title: str = "Test List",
-    owner_id: str = "550e8400-e29b-41d4-a716-446655440000",
-    member_id: str = "550e8400-e29b-41d4-a716-446655440000",
+    owner_id: str | None = None,
+    member_id: str | None = None,
     role: str = "owner",
     is_archived: bool = False,
 ) -> uuid.UUID:
     """Insereix llista + membre via engine.begin()."""
+    if owner_id is None:
+        owner_id = str(MOCK_USER_ID)
+    if member_id is None:
+        member_id = str(MOCK_USER_ID)
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO users (id, email, display_name, created_at)
             VALUES
-                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
-                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+                (:mock_id, 'test@example.com', 'Test User', NOW()),
+                (:other_id, 'other@example.com', 'Other User', NOW())
             ON CONFLICT (id) DO NOTHING
-        """))
+        """), {"mock_id": str(MOCK_USER_ID), "other_id": str(OTHER_USER_ID)})
         await conn.execute(text("""
             INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
             VALUES (:id, :owner_id, :title, :is_archived, :now, :now)
@@ -52,14 +62,26 @@ async def _add_member_and_items(engine: AsyncEngine, list_id: uuid.UUID) -> None
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO list_members (id, list_id, user_id, role, joined_at)
-            VALUES (:id, :list_id, '650e8400-e29b-41d4-a716-446655440001', 'editor', :now)
+            VALUES (:id, :list_id, :other_id, 'editor', :now)
             ON CONFLICT (list_id, user_id) DO NOTHING
-        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "now": now})
+        """), {
+            "id": str(uuid.uuid4()),
+            "list_id": str(list_id),
+            "other_id": str(OTHER_USER_ID),
+            "now": now,
+        })
         for pos, content in enumerate(("Un", "Dos")):
             await conn.execute(text("""
                 INSERT INTO list_items (id, list_id, created_by, content, is_checked, position, created_at, updated_at)
-                VALUES (:id, :list_id, '550e8400-e29b-41d4-a716-446655440000', :content, false, :pos, :now, :now)
-            """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "content": content, "pos": pos, "now": now})
+                VALUES (:id, :list_id, :mock_id, :content, false, :pos, :now, :now)
+            """), {
+                "id": str(uuid.uuid4()),
+                "list_id": str(list_id),
+                "mock_id": str(MOCK_USER_ID),
+                "content": content,
+                "pos": pos,
+                "now": now,
+            })
 
 
 class TestGetLists:
@@ -99,9 +121,13 @@ class TestCreateList:
 
 class TestGetListById:
     async def test_get_list_by_id(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Detall")
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
         response = await client_owner.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         data = response.json()
@@ -124,10 +150,16 @@ class TestGetListById:
         assert response.status_code == 403
 
     async def test_get_list_with_counts(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Amb comptadors")
         await _add_member_and_items(test_engine, list_id)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await assert_list_members_count_at_least(db_session, list_id, 2)
+        await assert_list_items_count(db_session, list_id, 2)
         response = await client_owner.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         data = response.json()

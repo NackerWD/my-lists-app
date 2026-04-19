@@ -4,7 +4,13 @@ from datetime import datetime, timezone
 
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+from tests.integration.db_asserts import (
+    assert_list_and_membership,
+    assert_list_members_count_at_least,
+    assert_members_join_users_possible,
+)
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
@@ -61,9 +67,17 @@ async def _add_member(
 
 
 class TestGetMembers:
-    async def test_get_members(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_get_members(
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
+    ) -> None:
         list_id = await _setup_list(test_engine)
         await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await assert_list_members_count_at_least(db_session, list_id, 2)
+        await assert_members_join_users_possible(db_session, list_id, 2)
 
         response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200
@@ -74,9 +88,14 @@ class TestGetMembers:
         assert "editor" in roles
 
     async def test_get_members_includes_user_info(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await assert_members_join_users_possible(db_session, list_id, 1)
 
         response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200
@@ -96,12 +115,18 @@ class TestGetMembers:
         assert response.status_code == 403
 
     async def test_get_members_three_users(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         await _ensure_third_user(test_engine)
         list_id = await _setup_list(test_engine)
         await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
         await _add_member(test_engine, list_id, str(THIRD_USER_ID), "editor")
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
+        await assert_list_members_count_at_least(db_session, list_id, 3)
+        await assert_members_join_users_possible(db_session, list_id, 3)
 
         response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200

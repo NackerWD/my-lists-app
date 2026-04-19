@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+from tests.integration.db_asserts import assert_list_and_membership
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
@@ -70,8 +72,14 @@ async def _insert_invitation(
 
 
 class TestInviteMember:
-    async def test_invite_member(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_invite_member(
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
+    ) -> None:
         list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
         response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "newmember@example.com", "role": "editor"},
@@ -83,9 +91,13 @@ class TestInviteMember:
         assert "/invite/" in data["link"]
 
     async def test_invite_member_invalid_role(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
         response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "newmember@example.com", "role": "owner"},
@@ -105,9 +117,13 @@ class TestInviteMember:
         assert response.status_code == 403
 
     async def test_invite_member_viewer_role(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self,
+        client_owner: AsyncClient,
+        test_engine: AsyncEngine,
+        db_session: AsyncSession,
     ) -> None:
         list_id = await _setup_list(test_engine)
+        await assert_list_and_membership(db_session, list_id, MOCK_USER_ID)
         response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "viewer@example.com", "role": "viewer"},
