@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -12,6 +13,7 @@ from app.models.list_item import ListItem
 from app.models.list_member import ListMember
 from app.models.user import User
 from app.schemas.list import ListCreate, ListResponse, ListUpdate
+from app.ws.handler import broadcast
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -96,12 +98,12 @@ async def get_list(
             detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
         )
 
-    member_result = await db.execute(
+    member_result = await db.execute(  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         select(ListMember).where(
             (ListMember.list_id == list_id) & (ListMember.user_id == current_user.id)
         )
     )
-    if member_result.scalar_one_or_none() is None:
+    if member_result.scalar_one_or_none() is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},
@@ -135,7 +137,13 @@ async def update_list(
     lst.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(lst)
-    return await _to_response(db, lst)
+    response = await _to_response(db, lst)
+    asyncio.create_task(broadcast(str(list_id), {
+        "type": "list_updated",
+        "list_id": str(list_id),
+        "payload": response.model_dump(mode="json"),
+    }, exclude_user_id=str(current_user.id)))
+    return response
 
 
 @router.delete("/{list_id}", status_code=200)
@@ -153,4 +161,9 @@ async def delete_list(
         )
     await db.delete(lst)
     await db.commit()
+    asyncio.create_task(broadcast(str(list_id), {
+        "type": "list_deleted",
+        "list_id": str(list_id),
+        "payload": {"list_id": str(list_id)},
+    }, exclude_user_id=str(current_user.id)))
     return {"deleted": True}

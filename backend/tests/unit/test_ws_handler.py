@@ -2,7 +2,7 @@
 from unittest.mock import AsyncMock
 
 
-from app.ws.handler import broadcast, connections
+from app.ws.handler import broadcast, _connections as connections
 
 
 class TestBroadcast:
