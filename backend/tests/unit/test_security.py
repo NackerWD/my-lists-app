@@ -167,3 +167,9 @@ class TestRequireListRole:
         """Verifica que la jerarquia de rols és correcta."""
         assert ROLE_HIERARCHY["owner"] > ROLE_HIERARCHY["editor"]
         assert ROLE_HIERARCHY["editor"] > ROLE_HIERARCHY["viewer"]
+
+    def test_require_list_role_is_memoized_per_minimum_role(self) -> None:
+        """Mateixa instància per dependency_overrides / Depends(require_list_role(...))."""
+        assert require_list_role("editor") is require_list_role("editor")
+        assert require_list_role("owner") is require_list_role("owner")
+        assert require_list_role("editor") is not require_list_role("owner")

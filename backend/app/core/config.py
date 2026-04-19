@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "capacitor://localhost"]
     ENVIRONMENT: str = "development"
     SENTRY_DSN: str = ""
+    FRONTEND_URL: str = "http://localhost:3000"
 
 
 settings = Settings()

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from functools import lru_cache
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -73,8 +74,14 @@ async def get_current_user(
     return user
 
 
+@lru_cache(maxsize=None)
 def require_list_role(minimum_role: str):
-    """Factory de dependency que comprova el rol mínim de l'usuari a una llista."""
+    """Factory de dependency que comprova el rol mínim de l'usuari a una llista.
+
+    Retorna sempre la mateixa funció per a cada ``minimum_role`` (cache LRU),
+    de manera que ``app.dependency_overrides[require_list_role("editor")]`` coincideix
+    amb la instància usada a ``Depends(require_list_role("editor"))`` als routers.
+    """
 
     async def _check(
         list_id: uuid.UUID,
