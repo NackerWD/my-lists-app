@@ -75,15 +75,7 @@ class TestGetItemsUnit:
     ) -> None:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
-        lst = _make_list(lid)
-        mem = _make_member(lid, MOCK_USER_ID)
-        mock_db.execute = AsyncMock(
-            side_effect=[
-                _exec_scalar_one_or_none(lst),
-                _exec_scalar_one_or_none(mem),
-                _exec_scalars_all([]),
-            ]
-        )
+        mock_db.execute = AsyncMock(return_value=_exec_scalars_all([]))
 
         r = await client.get(f"/api/v1/lists/{lid}/items")
         assert r.status_code == 200
@@ -98,11 +90,8 @@ class TestCreateItemUnit:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
         lst = _make_list(lid)
-        mem = _make_member(lid, MOCK_USER_ID)
         mock_db.execute = AsyncMock(
             side_effect=[
-                _exec_scalar_one_or_none(lst),
-                _exec_scalar_one_or_none(mem),
                 _exec_scalar(None),
                 _exec_scalar_one_or_none(lst),
             ]
@@ -198,7 +187,6 @@ class TestGetMembersUnit:
     ) -> None:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
-        member_row = _make_member(lid, MOCK_USER_ID, role="owner")
         other_user = User(
             id=OTHER_USER_ID,
             email="other@example.com",
@@ -208,12 +196,7 @@ class TestGetMembersUnit:
             last_seen_at=None,
         )
         other_member = _make_member(lid, OTHER_USER_ID, role="editor")
-        mock_db.execute = AsyncMock(
-            side_effect=[
-                _exec_scalar_one_or_none(member_row),
-                _exec_all_rows([(other_member, other_user)]),
-            ]
-        )
+        mock_db.execute = AsyncMock(return_value=_exec_all_rows([(other_member, other_user)]))
 
         r = await client.get(f"/api/v1/lists/{lid}/members")
         assert r.status_code == 200
@@ -240,25 +223,12 @@ class TestRemoveMemberUnit:
 
 
 class TestInviteUnit:
-    async def test_invite_list_not_found(
-        self, client_full_bypass: tuple[AsyncClient, AsyncMock]
-    ) -> None:
-        client, mock_db = client_full_bypass
-        mock_db.execute = AsyncMock(return_value=_exec_scalar_one_or_none(None))
-
-        r = await client.post(
-            f"/api/v1/lists/{uuid.uuid4()}/invite",
-            json={"email": "x@y.com", "role": "editor"},
-        )
-        assert r.status_code == 404
-
     async def test_invite_to_list(
         self, client_full_bypass: tuple[AsyncClient, AsyncMock]
     ) -> None:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
-        lst = _make_list(lid)
-        mock_db.execute = AsyncMock(return_value=_exec_scalar_one_or_none(lst))
+        mock_db.execute = AsyncMock()
 
         r = await client.post(
             f"/api/v1/lists/{lid}/invite",

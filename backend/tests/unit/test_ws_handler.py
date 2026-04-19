@@ -1,7 +1,10 @@
 """Tests unitaris per al WebSocket handler."""
+import asyncio
 import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 import app.ws.handler as ws_handler
 from app.ws.handler import broadcast, _connections as connections, _socket_users as socket_users
@@ -109,3 +112,41 @@ class TestPrivateWsHelpers:
                 str(uuid.uuid4()),
             )
         assert missing is False
+
+
+class TestSafeBroadcast:
+    @pytest.mark.asyncio
+    async def test_safe_broadcast_delegates_to_broadcast(self) -> None:
+        with patch.object(ws_handler, "broadcast", new_callable=AsyncMock) as mock_bc:
+            await ws_handler._safe_broadcast("list-1", {"type": "x"}, exclude_user_id="u1")
+        mock_bc.assert_awaited_once_with("list-1", {"type": "x"}, "u1")
+
+    @pytest.mark.asyncio
+    async def test_safe_broadcast_logs_when_broadcast_raises(self) -> None:
+        with patch.object(ws_handler, "broadcast", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+            with patch.object(ws_handler.logger, "warning") as mock_log:
+                await ws_handler._safe_broadcast("list-1", {"type": "x"})
+        mock_log.assert_called_once()
+
+
+class TestHeartbeatLoop:
+    @pytest.mark.asyncio
+    async def test_heartbeat_sends_ping_after_sleep(self) -> None:
+        ws = AsyncMock()
+        real_sleep = asyncio.sleep
+
+        async def sleep_shim(_delay: float) -> None:
+            await real_sleep(0)
+
+        with patch.object(ws_handler.asyncio, "sleep", side_effect=sleep_shim):
+            task = asyncio.create_task(ws_handler._heartbeat_loop(ws, "lid", "uid"))
+            await real_sleep(0.02)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        ws.send_text.assert_awaited()
+        sent = json.loads(ws.send_text.await_args[0][0])
+        assert sent["type"] == "ping"

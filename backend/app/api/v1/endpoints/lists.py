@@ -13,31 +13,26 @@ from app.models.list_item import ListItem
 from app.models.list_member import ListMember
 from app.models.user import User
 from app.schemas.list import ListCreate, ListResponse, ListUpdate
-from app.ws.handler import broadcast
+from app.ws.handler import _safe_broadcast
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
 
-async def _count_members(db: AsyncSession, list_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count(ListMember.id)).where(ListMember.list_id == list_id)
-    )
-    return result.scalar() or 0
-
-
-async def _count_items(db: AsyncSession, list_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count(ListItem.id)).where(ListItem.list_id == list_id)
-    )
-    return result.scalar() or 0
-
-
 async def _to_response(db: AsyncSession, lst: List) -> ListResponse:
-    member_count = await _count_members(db, lst.id)
-    item_count = await _count_items(db, lst.id)
+    mc_sq = (
+        select(func.count(ListMember.id))
+        .where(ListMember.list_id == lst.id)
+        .scalar_subquery()
+    )
+    ic_sq = (
+        select(func.count(ListItem.id))
+        .where(ListItem.list_id == lst.id)
+        .scalar_subquery()
+    )
+    row = (await db.execute(select(mc_sq, ic_sq))).one()
     data = ListResponse.model_validate(lst)
-    data.member_count = member_count
-    data.item_count = item_count
+    data.member_count = int(row[0])
+    data.item_count = int(row[1])
     return data
 
 
@@ -46,14 +41,33 @@ async def get_lists(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[ListResponse]:
-    result = await db.execute(
-        select(List)
+    member_count_sq = (
+        select(func.count(ListMember.id))
+        .where(ListMember.list_id == List.id)
+        .correlate(List)
+        .scalar_subquery()
+    )
+    item_count_sq = (
+        select(func.count(ListItem.id))
+        .where(ListItem.list_id == List.id)
+        .correlate(List)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(List, member_count_sq.label("member_count"), item_count_sq.label("item_count"))
         .join(ListMember, (ListMember.list_id == List.id) & (ListMember.user_id == current_user.id))
-        .where(List.is_archived == False)  # noqa: E712
+        .where(List.is_archived.is_(False))
         .order_by(List.updated_at.desc())
     )
-    lists = result.scalars().all()
-    return [await _to_response(db, lst) for lst in lists]
+    result = await db.execute(stmt)
+    rows = result.all()
+    out: list[ListResponse] = []
+    for lst, mcnt, icnt in rows:
+        data = ListResponse.model_validate(lst)
+        data.member_count = int(mcnt)
+        data.item_count = int(icnt)
+        out.append(data)
+    return out
 
 
 @router.post("/", status_code=201, response_model=ListResponse)
@@ -81,13 +95,16 @@ async def create_list(
 
     await db.commit()
     await db.refresh(lst)
-    return await _to_response(db, lst)
+    data = ListResponse.model_validate(lst)
+    data.member_count = 1
+    data.item_count = 0
+    return data
 
 
 @router.get("/{list_id}", response_model=ListResponse)
 async def get_list(
     list_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_list_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse:
     result = await db.execute(select(List).where(List.id == list_id))
@@ -97,18 +114,6 @@ async def get_list(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
         )
-
-    member_result = await db.execute(  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        select(ListMember).where(
-            (ListMember.list_id == list_id) & (ListMember.user_id == current_user.id)
-        )
-    )
-    if member_result.scalar_one_or_none() is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},
-        )
-
     return await _to_response(db, lst)
 
 
@@ -138,11 +143,17 @@ async def update_list(
     await db.commit()
     await db.refresh(lst)
     response = await _to_response(db, lst)
-    asyncio.create_task(broadcast(str(list_id), {
-        "type": "list_updated",
-        "list_id": str(list_id),
-        "payload": response.model_dump(mode="json"),
-    }, exclude_user_id=str(current_user.id)))
+    asyncio.create_task(
+        _safe_broadcast(
+            str(list_id),
+            {
+                "type": "list_updated",
+                "list_id": str(list_id),
+                "payload": response.model_dump(mode="json"),
+            },
+            exclude_user_id=str(current_user.id),
+        )
+    )
     return response
 
 
@@ -161,9 +172,15 @@ async def delete_list(
         )
     await db.delete(lst)
     await db.commit()
-    asyncio.create_task(broadcast(str(list_id), {
-        "type": "list_deleted",
-        "list_id": str(list_id),
-        "payload": {"list_id": str(list_id)},
-    }, exclude_user_id=str(current_user.id)))
+    asyncio.create_task(
+        _safe_broadcast(
+            str(list_id),
+            {
+                "type": "list_deleted",
+                "list_id": str(list_id),
+                "payload": {"list_id": str(list_id)},
+            },
+            exclude_user_id=str(current_user.id),
+        )
+    )
     return {"deleted": True}

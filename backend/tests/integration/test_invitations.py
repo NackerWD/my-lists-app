@@ -133,6 +133,15 @@ class TestInviteMember:
         assert "/invite/" in data["link"]
         assert "invitation_id" in data
 
+    async def test_invite_list_not_found(self, client: AsyncClient) -> None:
+        missing = uuid.uuid4()
+        response = await client.post(
+            f"/api/v1/lists/{missing}/invite",
+            json={"email": "x@example.com", "role": "editor"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "LIST_NOT_FOUND"
+
 
 class TestGetInvitation:
     async def test_get_invitation(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:

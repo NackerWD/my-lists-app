@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient
 
 from app.models.list import List
-from app.models.list_member import ListMember
 
 MOCK_USER_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 
@@ -37,17 +36,17 @@ def _exec_scalar_one_or_none(value):
     return r
 
 
-def _exec_scalar(value):
+def _exec_all(rows: list):
+    """Resultat de ``execute`` quan el codi crida ``.all()`` (p. ex. get_lists)."""
     r = MagicMock()
-    r.scalar.return_value = value
+    r.all.return_value = rows
     return r
 
 
-def _exec_scalars_all(items: list):
+def _exec_row_one(mcnt: int, icnt: int):
+    """Resultat de ``execute`` quan el codi crida ``.one()`` (subconsultes de counts)."""
     r = MagicMock()
-    inner = MagicMock()
-    inner.all.return_value = items
-    r.scalars.return_value = inner
+    r.one.return_value = (mcnt, icnt)
     return r
 
 
@@ -56,7 +55,7 @@ class TestGetListsUnit:
         self, client_full_bypass: tuple[AsyncClient, AsyncMock]
     ) -> None:
         client, mock_db = client_full_bypass
-        mock_db.execute = AsyncMock(return_value=_exec_scalars_all([]))
+        mock_db.execute = AsyncMock(return_value=_exec_all([]))
 
         r = await client.get("/api/v1/lists/")
         assert r.status_code == 200
@@ -68,13 +67,7 @@ class TestGetListsUnit:
     ) -> None:
         client, mock_db = client_full_bypass
         lst = _make_list(title="Una")
-        mock_db.execute = AsyncMock(
-            side_effect=[
-                _exec_scalars_all([lst]),
-                _exec_scalar(1),
-                _exec_scalar(0),
-            ]
-        )
+        mock_db.execute = AsyncMock(return_value=_exec_all([(lst, 1, 0)]))
 
         r = await client.get("/api/v1/lists/")
         assert r.status_code == 200
@@ -83,7 +76,7 @@ class TestGetListsUnit:
         assert data[0]["title"] == "Una"
         assert data[0]["member_count"] == 1
         assert data[0]["item_count"] == 0
-        assert mock_db.execute.await_count == 3
+        assert mock_db.execute.await_count == 1
 
 
 class TestGetListByIdUnit:
@@ -93,19 +86,10 @@ class TestGetListByIdUnit:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
         lst = _make_list(list_id=lid, title="Detall")
-        member = ListMember(
-            id=uuid.uuid4(),
-            list_id=lid,
-            user_id=MOCK_USER_ID,
-            role="owner",
-            joined_at=_now(),
-        )
         mock_db.execute = AsyncMock(
             side_effect=[
                 _exec_scalar_one_or_none(lst),
-                _exec_scalar_one_or_none(member),
-                _exec_scalar(2),
-                _exec_scalar(3),
+                _exec_row_one(2, 3),
             ]
         )
 
@@ -125,28 +109,13 @@ class TestGetListByIdUnit:
         r = await client.get(f"/api/v1/lists/{uuid.uuid4()}")
         assert r.status_code == 404
 
-    async def test_get_list_by_id_not_member(
-        self, client_full_bypass: tuple[AsyncClient, AsyncMock]
-    ) -> None:
-        client, mock_db = client_full_bypass
-        lst = _make_list()
-        mock_db.execute = AsyncMock(
-            side_effect=[
-                _exec_scalar_one_or_none(lst),
-                _exec_scalar_one_or_none(None),
-            ]
-        )
-
-        r = await client.get(f"/api/v1/lists/{lst.id}")
-        assert r.status_code == 403
-
 
 class TestCreateListUnit:
     async def test_create_list(
         self, client_full_bypass: tuple[AsyncClient, AsyncMock]
     ) -> None:
         client, mock_db = client_full_bypass
-        mock_db.execute = AsyncMock(side_effect=[_exec_scalar(1), _exec_scalar(0)])
+        mock_db.execute = AsyncMock()
 
         r = await client.post("/api/v1/lists/", json={"title": "Nova"})
         assert r.status_code == 201
@@ -157,7 +126,7 @@ class TestCreateListUnit:
         mock_db.add.assert_called()
         mock_db.commit.assert_awaited()
         mock_db.refresh.assert_awaited()
-        assert mock_db.execute.await_count == 2
+        mock_db.execute.assert_not_called()
 
 
 class TestUpdateDeleteListUnit:
@@ -171,8 +140,7 @@ class TestUpdateDeleteListUnit:
         mock_db.execute = AsyncMock(
             side_effect=[
                 _exec_scalar_one_or_none(lst),
-                _exec_scalar(1),
-                _exec_scalar(0),
+                _exec_row_one(1, 0),
             ]
         )
 

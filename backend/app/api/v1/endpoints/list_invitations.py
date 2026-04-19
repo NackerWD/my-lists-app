@@ -24,13 +24,6 @@ async def invite_to_list(
     current_user: User = Depends(require_list_role("editor")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    lst = (await db.execute(select(List).where(List.id == list_id))).scalar_one_or_none()
-    if lst is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
-        )
-
     token = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     invitation = ListInvitation(
@@ -111,14 +104,14 @@ async def accept_invitation(
             detail={"detail": "Invitació caducada o ja usada", "code": "INVITATION_EXPIRED"},
         )
 
-    existing = (  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
+    existing = (
         await db.execute(
             select(ListMember).where(
                 (ListMember.list_id == inv.list_id) & (ListMember.user_id == current_user.id)
             )
         )
     ).scalar_one_or_none()
-    if existing is not None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
+    if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"detail": "Ja ets membre d'aquesta llista", "code": "ALREADY_MEMBER"},

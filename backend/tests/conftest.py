@@ -48,8 +48,8 @@ async def db_session(test_engine):
         expire_on_commit=False,
         class_=AsyncSession,
     )
-    session = async_session()
-    yield session
+    async with async_session() as session:
+        yield session
 
 
 @dataclass
