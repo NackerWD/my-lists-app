@@ -96,6 +96,9 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    # require_list_role està memoitzat (lru_cache): es pot fer override amb la mateixa
+    # instància que als routers, p. ex. app.dependency_overrides[require_list_role("editor")] = ...
+    # No bypassar el rol per defecte: diversos tests d'integració esperen 403 (viewer / no owner).
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

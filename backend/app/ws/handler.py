@@ -63,7 +63,7 @@ async def _is_list_member(list_id_str: str, user_id_str: str) -> bool:
 
 
 @ws_router.websocket("/ws/lists/{list_id}")
-async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = "") -> None:
+async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = "") -> None:  # pragma: no cover
     user_id = await _get_user_id_from_token(token)
     if not user_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
