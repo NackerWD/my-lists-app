@@ -24,31 +24,33 @@ async def _setup_list(
     """Insereix llista + membre via engine.begin() — independent de db_session.
 
     Si member_role != 'owner', OTHER_USER esdevé el propietari de la llista
-    i MOCK_USER s'afegeix amb el rol indicat.
+    i MOCK_USER s'afegeix amb el rol indicat (cal coincidir amb el client mock).
     """
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
-    owner_id = (
-        "550e8400-e29b-41d4-a716-446655440000"
-        if member_role == "owner"
-        else "650e8400-e29b-41d4-a716-446655440001"
-    )
+    owner_id = str(MOCK_USER_ID) if member_role == "owner" else str(OTHER_USER_ID)
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO users (id, email, display_name, created_at)
             VALUES
-                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
-                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+                (:mock_id, 'test@example.com', 'Test User', NOW()),
+                (:other_id, 'other@example.com', 'Other User', NOW())
             ON CONFLICT (id) DO NOTHING
-        """))
+        """), {"mock_id": str(MOCK_USER_ID), "other_id": str(OTHER_USER_ID)})
         await conn.execute(text("""
             INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
             VALUES (:id, :owner_id, :title, false, :now, :now)
         """), {"id": str(list_id), "owner_id": owner_id, "title": title, "now": now})
         await conn.execute(text("""
             INSERT INTO list_members (id, list_id, user_id, role, joined_at)
-            VALUES (:id, :list_id, '550e8400-e29b-41d4-a716-446655440000', :role, :now)
-        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "role": member_role, "now": now})
+            VALUES (:id, :list_id, :member_user_id, :role, :now)
+        """), {
+            "id": str(uuid.uuid4()),
+            "list_id": str(list_id),
+            "member_user_id": str(MOCK_USER_ID),
+            "role": member_role,
+            "now": now,
+        })
     return list_id
 
 
@@ -64,31 +66,42 @@ async def _insert_item(
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO list_items (id, list_id, created_by, content, is_checked, position, created_at, updated_at)
-            VALUES (:id, :list_id, '550e8400-e29b-41d4-a716-446655440000', :content, false, :position, :now, :now)
-        """), {"id": str(item_id), "list_id": str(list_id), "content": content, "position": position, "now": now})
+            VALUES (:id, :list_id, :created_by, :content, false, :position, :now, :now)
+        """), {
+            "id": str(item_id),
+            "list_id": str(list_id),
+            "created_by": str(MOCK_USER_ID),
+            "content": content,
+            "position": position,
+            "now": now,
+        })
     return item_id
 
 
 async def _list_owned_only_by_other(engine: AsyncEngine) -> uuid.UUID:
-    """Llista on MOCK_USER no és membre (només OTHER és owner)."""
+    """Llista on MOCK_USER_ID no és membre: només OTHER com a owner.
+
+    No afegir fila list_members per MOCK_USER_ID o test_get_items_not_member
+    deixaria de comprovar el 403 per no-membre.
+    """
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO users (id, email, display_name, created_at)
             VALUES
-                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
-                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+                (:mock_id, 'test@example.com', 'Test User', NOW()),
+                (:other_id, 'other@example.com', 'Other User', NOW())
             ON CONFLICT (id) DO NOTHING
-        """))
+        """), {"mock_id": str(MOCK_USER_ID), "other_id": str(OTHER_USER_ID)})
         await conn.execute(text("""
             INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
-            VALUES (:id, '650e8400-e29b-41d4-a716-446655440001', 'Alien List', false, :now, :now)
-        """), {"id": str(list_id), "now": now})
+            VALUES (:id, :other_id, 'Alien List', false, :now, :now)
+        """), {"id": str(list_id), "other_id": str(OTHER_USER_ID), "now": now})
         await conn.execute(text("""
             INSERT INTO list_members (id, list_id, user_id, role, joined_at)
-            VALUES (:id, :list_id, '650e8400-e29b-41d4-a716-446655440001', 'owner', :now)
-        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "now": now})
+            VALUES (:id, :list_id, :other_id, 'owner', :now)
+        """), {"id": str(uuid.uuid4()), "list_id": str(list_id), "other_id": str(OTHER_USER_ID), "now": now})
     return list_id
 
 

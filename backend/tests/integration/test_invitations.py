@@ -12,20 +12,25 @@ OTHER_USER_ID = uuid.UUID("650e8400-e29b-41d4-a716-446655440001")
 
 async def _setup_list(
     engine: AsyncEngine,
-    owner_id: str = "550e8400-e29b-41d4-a716-446655440000",
-    member_id: str = "550e8400-e29b-41d4-a716-446655440000",
+    owner_id: str = str(MOCK_USER_ID),
+    member_id: str = str(MOCK_USER_ID),
     role: str = "owner",
 ) -> uuid.UUID:
+    """Crea llista + un membre. El client d'integració és sempre MOCK_USER_ID.
+
+    POST /lists/{id}/invite exigeix require_list_role("editor"): cal una fila
+    list_members per MOCK_USER_ID amb rol >= editor (owner inclòs).
+    """
     list_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await conn.execute(text("""
             INSERT INTO users (id, email, display_name, created_at)
             VALUES
-                ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'Test User', NOW()),
-                ('650e8400-e29b-41d4-a716-446655440001', 'other@example.com', 'Other User', NOW())
+                (:mock_id, 'test@example.com', 'Test User', NOW()),
+                (:other_id, 'other@example.com', 'Other User', NOW())
             ON CONFLICT (id) DO NOTHING
-        """))
+        """), {"mock_id": str(MOCK_USER_ID), "other_id": str(OTHER_USER_ID)})
         await conn.execute(text("""
             INSERT INTO lists (id, owner_id, title, is_archived, created_at, updated_at)
             VALUES (:id, :owner_id, 'Test List', false, :now, :now)
@@ -42,7 +47,7 @@ async def _insert_invitation(
     list_id: uuid.UUID,
     token: str,
     role: str = "editor",
-    invited_by: str = "650e8400-e29b-41d4-a716-446655440001",
+    invited_by: str = str(OTHER_USER_ID),
     expires_at: datetime | None = None,
     status: str = "pending",
 ) -> None:
@@ -88,8 +93,8 @@ class TestInviteMember:
     async def test_invite_member_not_list_member(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(
             test_engine,
-            owner_id="650e8400-e29b-41d4-a716-446655440001",
-            member_id="650e8400-e29b-41d4-a716-446655440001",
+            owner_id=str(OTHER_USER_ID),
+            member_id=str(OTHER_USER_ID),
         )
         response = await client.post(
             f"/api/v1/lists/{list_id}/invite",
@@ -156,8 +161,8 @@ class TestAcceptInvitation:
         # List owned by OTHER_USER_ID — MOCK_USER_ID is NOT a member
         list_id = await _setup_list(
             test_engine,
-            owner_id="650e8400-e29b-41d4-a716-446655440001",
-            member_id="650e8400-e29b-41d4-a716-446655440001",
+            owner_id=str(OTHER_USER_ID),
+            member_id=str(OTHER_USER_ID),
         )
         token = str(uuid.uuid4())
         await _insert_invitation(test_engine, list_id, token, role="editor")
@@ -180,8 +185,8 @@ class TestAcceptInvitation:
     async def test_accept_expired_invitation(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(
             test_engine,
-            owner_id="650e8400-e29b-41d4-a716-446655440001",
-            member_id="650e8400-e29b-41d4-a716-446655440001",
+            owner_id=str(OTHER_USER_ID),
+            member_id=str(OTHER_USER_ID),
         )
         token = str(uuid.uuid4())
         past = datetime.now(timezone.utc) - timedelta(days=8)
@@ -201,8 +206,8 @@ class TestAcceptInvitation:
     ) -> None:
         list_id = await _setup_list(
             test_engine,
-            owner_id="650e8400-e29b-41d4-a716-446655440001",
-            member_id="650e8400-e29b-41d4-a716-446655440001",
+            owner_id=str(OTHER_USER_ID),
+            member_id=str(OTHER_USER_ID),
         )
         token = str(uuid.uuid4())
         future = datetime.now(timezone.utc) + timedelta(days=7)
