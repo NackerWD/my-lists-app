@@ -70,9 +70,9 @@ async def _insert_invitation(
 
 
 class TestInviteMember:
-    async def test_invite_member(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_invite_member(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.post(
+        response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "newmember@example.com", "role": "editor"},
         )
@@ -82,9 +82,11 @@ class TestInviteMember:
         assert "link" in data
         assert "/invite/" in data["link"]
 
-    async def test_invite_member_invalid_role(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_invite_member_invalid_role(
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.post(
+        response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "newmember@example.com", "role": "owner"},
         )
@@ -103,10 +105,10 @@ class TestInviteMember:
         assert response.status_code == 403
 
     async def test_invite_member_viewer_role(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.post(
+        response = await client_owner.post(
             f"/api/v1/lists/{list_id}/invite",
             json={"email": "viewer@example.com", "role": "viewer"},
         )
@@ -117,12 +119,12 @@ class TestInviteMember:
 
 
 class TestGetInvitation:
-    async def test_get_invitation(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_get_invitation(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)
         token = str(uuid.uuid4())
         await _insert_invitation(test_engine, list_id, token)
 
-        response = await client.get(f"/api/v1/invitations/{token}")
+        response = await client_owner.get(f"/api/v1/invitations/{token}")
         assert response.status_code == 200
         data = response.json()
         assert data["list_id"] == str(list_id)
@@ -157,7 +159,7 @@ class TestGetInvitation:
 
 
 class TestAcceptInvitation:
-    async def test_accept_invitation(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_accept_invitation(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         # List owned by OTHER_USER_ID — MOCK_USER_ID is NOT a member
         list_id = await _setup_list(
             test_engine,
@@ -167,7 +169,7 @@ class TestAcceptInvitation:
         token = str(uuid.uuid4())
         await _insert_invitation(test_engine, list_id, token, role="editor")
 
-        response = await client.post(f"/api/v1/invitations/{token}/accept")
+        response = await client_owner.post(f"/api/v1/invitations/{token}/accept")
         assert response.status_code == 200
         data = response.json()
         assert data["list_id"] == str(list_id)

@@ -1,6 +1,6 @@
 """Tests d'integració per als endpoints de llistes.
 La BD és real (PostgreSQL via NullPool). Supabase i get_current_user estan
-mocked via el fixture `client` del conftest.
+mocked via els fixtures ``client`` / ``client_owner`` del conftest.
 
 Els usuaris de test (MOCK_USER_ID i OTHER_USER_ID) existeixen a la BD gràcies
 a la migració 0003_seed_test_users (només activa quan ENVIRONMENT=test).
@@ -63,53 +63,53 @@ async def _add_member_and_items(engine: AsyncEngine, list_id: uuid.UUID) -> None
 
 
 class TestGetLists:
-    async def test_get_lists_returns_array(self, client: AsyncClient) -> None:
+    async def test_get_lists_returns_array(self, client_owner: AsyncClient) -> None:
         """Comprova que el endpoint retorna 200 i una llista JSON.
         No s'assumeix que la BD estigui buida perquè tests anteriors poden
         haver commitejat llistes (NullPool no reverteix commits)."""
-        response = await client.get("/api/v1/lists/")
+        response = await client_owner.get("/api/v1/lists/")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
 
     async def test_get_archived_lists(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(
             test_engine, title="Arxivada", is_archived=True
         )
-        response = await client.get("/api/v1/lists/")
+        response = await client_owner.get("/api/v1/lists/")
         assert response.status_code == 200
         ids = [item["id"] for item in response.json()]
         assert str(list_id) not in ids
 
 
 class TestCreateList:
-    async def test_create_list(self, client: AsyncClient) -> None:
-        response = await client.post("/api/v1/lists/", json={"title": "La meva llista"})
+    async def test_create_list(self, client_owner: AsyncClient) -> None:
+        response = await client_owner.post("/api/v1/lists/", json={"title": "La meva llista"})
         assert response.status_code == 201
         data = response.json()
         assert "id" in data
         assert data["title"] == "La meva llista"
         assert data["member_count"] == 1
 
-    async def test_create_list_invalid(self, client: AsyncClient) -> None:
-        response = await client.post("/api/v1/lists/", json={})
+    async def test_create_list_invalid(self, client_owner: AsyncClient) -> None:
+        response = await client_owner.post("/api/v1/lists/", json={})
         assert response.status_code == 422
 
 
 class TestGetListById:
     async def test_get_list_by_id(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Detall")
-        response = await client.get(f"/api/v1/lists/{list_id}")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Detall"
         assert str(data["id"]) == str(list_id)
 
-    async def test_get_list_not_found(self, client: AsyncClient) -> None:
-        response = await client.get(f"/api/v1/lists/{uuid.uuid4()}")
+    async def test_get_list_not_found(self, client_owner: AsyncClient) -> None:
+        response = await client_owner.get(f"/api/v1/lists/{uuid.uuid4()}")
         assert response.status_code == 404
 
     async def test_get_list_not_member(
@@ -124,11 +124,11 @@ class TestGetListById:
         assert response.status_code == 403
 
     async def test_get_list_with_counts(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Amb comptadors")
         await _add_member_and_items(test_engine, list_id)
-        response = await client.get(f"/api/v1/lists/{list_id}")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         data = response.json()
         assert data["member_count"] == 2
@@ -137,10 +137,10 @@ class TestGetListById:
 
 class TestUpdateList:
     async def test_update_list(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Original")
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_id}", json={"title": "Actualitzat"}
         )
         assert response.status_code == 200
@@ -161,10 +161,10 @@ class TestUpdateList:
         assert response.status_code == 403
 
     async def test_update_list_description_is_archived(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(test_engine, title="Títol inicial")
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_id}",
             json={
                 "title": "Nou títol",
@@ -181,10 +181,10 @@ class TestUpdateList:
 
 class TestDeleteList:
     async def test_delete_list(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _create_list_direct(test_engine)
-        response = await client.delete(f"/api/v1/lists/{list_id}")
+        response = await client_owner.delete(f"/api/v1/lists/{list_id}")
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
 

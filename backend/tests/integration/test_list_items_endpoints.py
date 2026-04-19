@@ -1,6 +1,6 @@
 """Tests d'integració per als endpoints d'ítems de llista.
 La BD és real (PostgreSQL via NullPool). Supabase i get_current_user estan
-mocked via el fixture `client` del conftest.
+mocked via els fixtures ``client`` / ``client_owner`` del conftest.
 
 Els usuaris de test existeixen a la BD gràcies a la migració 0003_seed_test_users
 (només activa quan ENVIRONMENT=test).
@@ -107,18 +107,18 @@ async def _list_owned_only_by_other(engine: AsyncEngine) -> uuid.UUID:
 
 class TestGetItems:
     async def test_get_items_empty(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.get(f"/api/v1/lists/{list_id}/items")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/items")
         assert response.status_code == 200
         assert response.json() == []
 
     async def test_get_items_list_not_found(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         missing = uuid.uuid4()
-        response = await client.get(f"/api/v1/lists/{missing}/items")
+        response = await client_owner.get(f"/api/v1/lists/{missing}/items")
         assert response.status_code == 404
 
     async def test_get_items_not_member(
@@ -131,10 +131,10 @@ class TestGetItems:
 
 class TestCreateItem:
     async def test_create_item(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.post(
+        response = await client_owner.post(
             f"/api/v1/lists/{list_id}/items",
             json={"content": "Comprar llet"},
         )
@@ -145,32 +145,32 @@ class TestCreateItem:
         assert "id" in data
 
     async def test_create_item_invalid(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.post(f"/api/v1/lists/{list_id}/items", json={})
+        response = await client_owner.post(f"/api/v1/lists/{list_id}/items", json={})
         assert response.status_code == 422
 
     async def test_create_item_position_auto(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        r1 = await client.post(
+        r1 = await client_owner.post(
             f"/api/v1/lists/{list_id}/items", json={"content": "Primer"}
         )
         assert r1.status_code == 201
         assert r1.json()["position"] == 0
-        r2 = await client.post(
+        r2 = await client_owner.post(
             f"/api/v1/lists/{list_id}/items", json={"content": "Segon"}
         )
         assert r2.status_code == 201
         assert r2.json()["position"] == 1
 
     async def test_create_item_list_not_found(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         missing = uuid.uuid4()
-        response = await client.post(
+        response = await client_owner.post(
             f"/api/v1/lists/{missing}/items",
             json={"content": "Orfe"},
         )
@@ -179,11 +179,11 @@ class TestCreateItem:
 
 class TestUpdateItem:
     async def test_update_item_check(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
         item_id = await _insert_item(test_engine, list_id, "Tasca pendent")
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_id}/items/{item_id}",
             json={"is_checked": True},
         )
@@ -191,11 +191,11 @@ class TestUpdateItem:
         assert response.json()["is_checked"] is True
 
     async def test_update_item_priority(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
         item_id = await _insert_item(test_engine, list_id, "Tasca important")
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_id}/items/{item_id}",
             json={"priority": "high"},
         )
@@ -214,25 +214,25 @@ class TestUpdateItem:
         assert response.status_code == 403
 
     async def test_update_item_wrong_list_id(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_a = await _setup_list(test_engine, title="A")
         list_b = await _setup_list(test_engine, title="B")
         item_id = await _insert_item(test_engine, list_a, "Només a A")
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_b}/items/{item_id}",
             json={"content": "Hack"},
         )
         assert response.status_code == 404
 
     async def test_update_item_multiple_fields(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
         item_id = await _insert_item(test_engine, list_id, "Original")
         due = "2026-06-15T12:00:00+00:00"
         remind = "2026-06-16T09:00:00+00:00"
-        response = await client.patch(
+        response = await client_owner.patch(
             f"/api/v1/lists/{list_id}/items/{item_id}",
             json={
                 "content": "Actualitzat",
@@ -251,19 +251,19 @@ class TestUpdateItem:
 
 class TestDeleteItem:
     async def test_delete_item(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
         item_id = await _insert_item(test_engine, list_id)
-        response = await client.delete(f"/api/v1/lists/{list_id}/items/{item_id}")
+        response = await client_owner.delete(f"/api/v1/lists/{list_id}/items/{item_id}")
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
 
     async def test_delete_item_not_found(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
-        response = await client.delete(
+        response = await client_owner.delete(
             f"/api/v1/lists/{list_id}/items/{uuid.uuid4()}"
         )
         assert response.status_code == 404
@@ -281,7 +281,7 @@ class TestDeleteItem:
 
 class TestItemsOrdering:
     async def test_items_ordered_by_position(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         list_id = await _setup_list(test_engine)
         # Inserir en ordre invers perquè el GET els retorni ordenats per position
@@ -289,7 +289,7 @@ class TestItemsOrdering:
         await _insert_item(test_engine, list_id, "Primer", position=0)
         await _insert_item(test_engine, list_id, "Segon", position=1)
 
-        response = await client.get(f"/api/v1/lists/{list_id}/items")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/items")
         assert response.status_code == 200
         items = response.json()
         assert len(items) == 3

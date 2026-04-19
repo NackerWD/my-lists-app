@@ -61,11 +61,11 @@ async def _add_member(
 
 
 class TestGetMembers:
-    async def test_get_members(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_get_members(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)
         await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
 
-        response = await client.get(f"/api/v1/lists/{list_id}/members")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
@@ -73,10 +73,12 @@ class TestGetMembers:
         assert "owner" in roles
         assert "editor" in roles
 
-    async def test_get_members_includes_user_info(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_get_members_includes_user_info(
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
         list_id = await _setup_list(test_engine)
 
-        response = await client.get(f"/api/v1/lists/{list_id}/members")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
@@ -94,14 +96,14 @@ class TestGetMembers:
         assert response.status_code == 403
 
     async def test_get_members_three_users(
-        self, client: AsyncClient, test_engine: AsyncEngine
+        self, client_owner: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         await _ensure_third_user(test_engine)
         list_id = await _setup_list(test_engine)
         await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
         await _add_member(test_engine, list_id, str(THIRD_USER_ID), "editor")
 
-        response = await client.get(f"/api/v1/lists/{list_id}/members")
+        response = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 3
@@ -117,15 +119,15 @@ class TestGetMembers:
 
 
 class TestRemoveMember:
-    async def test_remove_member(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_remove_member(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)
         await _add_member(test_engine, list_id, str(OTHER_USER_ID), "editor")
 
-        response = await client.delete(f"/api/v1/lists/{list_id}/members/{OTHER_USER_ID}")
+        response = await client_owner.delete(f"/api/v1/lists/{list_id}/members/{OTHER_USER_ID}")
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
 
-        after = await client.get(f"/api/v1/lists/{list_id}/members")
+        after = await client_owner.get(f"/api/v1/lists/{list_id}/members")
         assert after.status_code == 200
         ids_after = {m["user_id"] for m in after.json()}
         assert str(OTHER_USER_ID) not in ids_after
@@ -137,11 +139,11 @@ class TestRemoveMember:
         response = await client.delete(f"/api/v1/lists/{list_id}/members/{MOCK_USER_ID}")
         assert response.status_code == 403
 
-    async def test_remove_non_member(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
+    async def test_remove_non_member(self, client_owner: AsyncClient, test_engine: AsyncEngine) -> None:
         list_id = await _setup_list(test_engine)
         random_user = uuid.uuid4()
 
-        response = await client.delete(f"/api/v1/lists/{list_id}/members/{random_user}")
+        response = await client_owner.delete(f"/api/v1/lists/{list_id}/members/{random_user}")
         assert response.status_code == 404
 
     async def test_remove_member_not_owner(self, client: AsyncClient, test_engine: AsyncEngine) -> None:
