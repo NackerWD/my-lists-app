@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str = "placeholder-service-key"
     ALLOWED_ORIGINS: str = "http://localhost:3000,capacitor://localhost"
     ENVIRONMENT: str = "development"
+    SCHEDULER_ENABLED: bool = True
     SENTRY_DSN: str = ""
+    FRONTEND_URL: str = "http://localhost:3000"
 
 
 settings = Settings()

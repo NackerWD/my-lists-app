@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.database import get_db
 from app.core.security import get_current_user, require_list_role
+from app.models.device_token import DeviceToken
 from app.models.list import List
 from app.models.list_invitation import ListInvitation
 from app.models.list_item import ListItem
@@ -44,6 +45,9 @@ async def _refresh_orm_defaults(obj: object) -> None:
         if getattr(obj, "is_checked", None) is None:
             obj.is_checked = False
     elif isinstance(obj, ListInvitation):
+        if getattr(obj, "created_at", None) is None:
+            obj.created_at = t
+    elif isinstance(obj, DeviceToken):
         if getattr(obj, "created_at", None) is None:
             obj.created_at = t
 

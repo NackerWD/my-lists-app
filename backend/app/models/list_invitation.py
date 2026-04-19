@@ -14,6 +14,9 @@ class ListInvitation(Base):
         CheckConstraint(
             "status IN ('pending', 'accepted', 'expired')", name="ck_list_invitation_status"
         ),
+        CheckConstraint(
+            "role IN ('editor', 'viewer')", name="ck_list_invitation_role"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -27,6 +30,7 @@ class ListInvitation(Base):
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     token: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(10), nullable=False, default="viewer")
     status: Mapped[str] = mapped_column(String(10), default="pending", nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

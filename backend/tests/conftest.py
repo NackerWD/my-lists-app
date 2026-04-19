@@ -1,4 +1,8 @@
 import os
+
+# Evita engegar APScheduler als tests (lifespan de main).
+os.environ.setdefault("SCHEDULER_ENABLED", "false")
+
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -96,6 +100,38 @@ async def client(db_session: AsyncSession, mock_current_user: MockUser):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    # require_list_role està memoitzat (lru_cache): es pot fer override amb la mateixa
+    # instància que als routers, p. ex. app.dependency_overrides[require_list_role("editor")] = ...
+    # No bypassar el rol per defecte: diversos tests d'integració esperen 403 (viewer / no owner).
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client_owner(db_session: AsyncSession, mock_current_user: MockUser):
+    """Client que bypassa ``require_list_role`` (camí feliç als endpoints protegits per rol).
+
+    Usa la mateixa sessió BD que ``client``; només afegeix overrides per a
+    ``require_list_role("owner"|"editor"|"viewer")``.
+    """
+    from app.core.database import get_db
+    from app.core.security import get_current_user, require_list_role
+    from main import app
+
+    async def override_get_db():
+        yield db_session
+
+    async def bypass_list_role(list_id: uuid.UUID):  # noqa: ARG001
+        return mock_current_user
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[require_list_role("owner")] = bypass_list_role
+    app.dependency_overrides[require_list_role("editor")] = bypass_list_role
+    app.dependency_overrides[require_list_role("viewer")] = bypass_list_role
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

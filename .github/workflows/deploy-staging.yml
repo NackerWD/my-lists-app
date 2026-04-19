@@ -1,36 +1,10 @@
 name: Deploy Staging
-
 on:
   push:
-    branches: [develop]
-
+    branches: [never-trigger-disabled, main-disabled]
 jobs:
-  deploy-backend:
-    name: deploy / backend (Railway)
+  placeholder:
+    name: disabled
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: railway up --service backend
-        working-directory: backend
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
-  deploy-frontend:
-    name: deploy / frontend (Vercel)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: web
-          vercel-args: '--prod'
+      - run: echo "Deploy gestionat per Railway i Vercel automàticament"

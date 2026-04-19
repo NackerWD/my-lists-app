@@ -29,6 +29,7 @@ class ListItem(Base):
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     priority: Mapped[str | None] = mapped_column(String(10))
     remind_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

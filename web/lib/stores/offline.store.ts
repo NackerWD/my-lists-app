@@ -1,11 +1,17 @@
 import { create } from "zustand";
-import { enqueueOperation, processQueue, type QueuedOperation } from "@/lib/offline/queue";
+
+import {
+  enqueueOperation,
+  processQueue as flushOfflineQueue,
+  type EnqueueInput,
+} from "@/lib/offline/queue";
 
 interface OfflineStore {
   isOnline: boolean;
   queueLength: number;
   setOnline: (online: boolean) => void;
-  enqueue: (op: Omit<QueuedOperation, "id" | "timestamp" | "retries">) => Promise<void>;
+  enqueue: (op: EnqueueInput) => Promise<void>;
+  /** Sense QueryClient no s'invaliden caches TanStack; prefer ``useOfflineQueue``. */
   processQueue: () => Promise<void>;
 }
 
@@ -16,7 +22,7 @@ export const useOfflineStore = create<OfflineStore>((set) => ({
   setOnline: (online: boolean) => {
     set({ isOnline: online });
     if (online) {
-      processQueue().catch(console.error);
+      void flushOfflineQueue();
     }
   },
 
@@ -26,7 +32,7 @@ export const useOfflineStore = create<OfflineStore>((set) => ({
   },
 
   processQueue: async () => {
-    await processQueue();
+    await flushOfflineQueue();
     set({ queueLength: 0 });
   },
 }));
