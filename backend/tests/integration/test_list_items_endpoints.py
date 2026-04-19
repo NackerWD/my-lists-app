@@ -143,11 +143,12 @@ class TestGetItems:
         assert items[1]["content"] == "Beta"
 
     async def test_get_items_list_not_found(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         missing = uuid.uuid4()
-        response = await client_owner.get(f"/api/v1/lists/{missing}/items")
+        response = await client.get(f"/api/v1/lists/{missing}/items")
         assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "LIST_NOT_FOUND"
 
     async def test_get_items_not_member(
         self, client: AsyncClient, test_engine: AsyncEngine
@@ -195,14 +196,26 @@ class TestCreateItem:
         assert r2.json()["position"] == 1
 
     async def test_create_item_list_not_found(
-        self, client_owner: AsyncClient, test_engine: AsyncEngine
+        self, client: AsyncClient, test_engine: AsyncEngine
     ) -> None:
         missing = uuid.uuid4()
-        response = await client_owner.post(
+        response = await client.post(
             f"/api/v1/lists/{missing}/items",
             json={"content": "Orfe"},
         )
         assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "LIST_NOT_FOUND"
+
+    async def test_create_item_viewer_forbidden(
+        self, client: AsyncClient, test_engine: AsyncEngine
+    ) -> None:
+        list_id = await _setup_list(test_engine, member_role="viewer")
+        response = await client.post(
+            f"/api/v1/lists/{list_id}/items",
+            json={"content": "Només editor"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "INSUFFICIENT_ROLE"
 
 
 class TestUpdateItem:

@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -8,6 +10,8 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import get_supabase
 from app.models.list_member import ListMember
+
+logger = logging.getLogger(__name__)
 
 ws_router = APIRouter()
 
@@ -30,6 +34,33 @@ async def broadcast(list_id: str, message: dict, exclude_user_id: str | None = N
     for ws in dead:
         _connections[list_id].discard(ws)
         _socket_users.pop(ws, None)
+
+
+async def _safe_broadcast(
+    list_id: str, message: dict, exclude_user_id: str | None = None
+) -> None:
+    try:
+        await broadcast(list_id, message, exclude_user_id)
+    except Exception as e:
+        logger.warning("Broadcast failed for list %s: %s", list_id, e)
+
+
+async def _heartbeat_loop(ws: WebSocket, list_id: str, user_id: str) -> None:
+    """Envia ping periòdic; elimina el socket si l'enviament falla."""
+    try:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await ws.send_text(json.dumps({"type": "ping"}))
+            except Exception:
+                logger.info("Heartbeat failed for user %s on list %s", user_id, list_id)
+                bucket = _connections.get(list_id)
+                if bucket is not None:
+                    bucket.discard(ws)
+                _socket_users.pop(ws, None)
+                break
+    except asyncio.CancelledError:
+        raise
 
 
 async def _get_user_id_from_token(token: str) -> str | None:
@@ -63,7 +94,7 @@ async def _is_list_member(list_id_str: str, user_id_str: str) -> bool:
 
 
 @ws_router.websocket("/ws/lists/{list_id}")
-async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = "") -> None:  # pragma: no cover
+async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = "") -> None:
     user_id = await _get_user_id_from_token(token)
     if not user_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -77,6 +108,7 @@ async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = ""
     _connections.setdefault(list_id, set()).add(websocket)
     _socket_users[websocket] = user_id
 
+    heartbeat_task = asyncio.create_task(_heartbeat_loop(websocket, list_id, user_id))
     try:
         while True:
             raw = await websocket.receive_text()
@@ -85,10 +117,20 @@ async def websocket_endpoint(websocket: WebSocket, list_id: str, token: str = ""
             except json.JSONDecodeError:
                 continue
 
+            if message.get("type") == "pong":
+                continue
+
             message["user_id"] = user_id
             await broadcast(list_id, message, exclude_user_id=user_id)
     except WebSocketDisconnect:
-        _connections[list_id].discard(websocket)
+        pass
+    finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
+        bucket = _connections.get(list_id)
+        if bucket is not None:
+            bucket.discard(websocket)
         _socket_users.pop(websocket, None)
-        if not _connections.get(list_id):
+        if bucket is not None and not bucket:
             _connections.pop(list_id, None)

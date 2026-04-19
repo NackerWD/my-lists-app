@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_list_role
+from app.core.security import require_list_role
 from app.models.list_member import ListMember
 from app.models.user import User
 from app.schemas.list_member import ListMemberWithUserResponse
@@ -16,22 +16,9 @@ router = APIRouter(tags=["list-members"])
 @router.get("/lists/{list_id}/members", response_model=list[ListMemberWithUserResponse])
 async def get_members(
     list_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_list_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ListMemberWithUserResponse]:
-    member_check = (  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        await db.execute(
-            select(ListMember).where(
-                (ListMember.list_id == list_id) & (ListMember.user_id == current_user.id)
-            )
-        )
-    ).scalar_one_or_none()
-    if member_check is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},
-        )
-
     rows = (
         await db.execute(
             select(ListMember, User)

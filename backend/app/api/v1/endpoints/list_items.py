@@ -7,46 +7,22 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_list_role
+from app.core.security import require_list_role
 from app.models.list import List
 from app.models.list_item import ListItem
-from app.models.list_member import ListMember
 from app.models.user import User
 from app.schemas.list_item import ListItemCreate, ListItemResponse, ListItemUpdate
-from app.ws.handler import broadcast
+from app.ws.handler import _safe_broadcast
 
 router = APIRouter(tags=["list-items"])
-
-
-async def _assert_member(
-    db: AsyncSession, list_id: uuid.UUID, user_id: uuid.UUID
-) -> None:
-    """Llança 404 si la llista no existeix, 403 si l'usuari no és membre."""
-    list_result = await db.execute(select(List).where(List.id == list_id))  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-    if list_result.scalar_one_or_none() is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
-        )
-    member_result = await db.execute(  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        select(ListMember).where(
-            (ListMember.list_id == list_id) & (ListMember.user_id == user_id)
-        )
-    )
-    if member_result.scalar_one_or_none() is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},
-        )
 
 
 @router.get("/lists/{list_id}/items", response_model=list[ListItemResponse])
 async def get_items(
     list_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_list_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ListItemResponse]:
-    await _assert_member(db, list_id, current_user.id)
     result = await db.execute(
         select(ListItem)
         .where(ListItem.list_id == list_id)
@@ -59,11 +35,9 @@ async def get_items(
 async def create_item(
     list_id: uuid.UUID,
     body: ListItemCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_list_role("editor")),
     db: AsyncSession = Depends(get_db),
 ) -> ListItemResponse:
-    await _assert_member(db, list_id, current_user.id)
-
     max_result = await db.execute(
         select(func.max(ListItem.position)).where(ListItem.list_id == list_id)
     )
@@ -83,7 +57,6 @@ async def create_item(
     )
     db.add(item)
 
-    # Actualitza updated_at de la llista
     list_result = await db.execute(select(List).where(List.id == list_id))
     lst = list_result.scalar_one()
     lst.updated_at = datetime.now(timezone.utc)
@@ -91,11 +64,17 @@ async def create_item(
     await db.commit()
     await db.refresh(item)
     response = ListItemResponse.model_validate(item)
-    asyncio.create_task(broadcast(str(list_id), {
-        "type": "item_created",
-        "list_id": str(list_id),
-        "payload": response.model_dump(mode="json"),
-    }, exclude_user_id=str(current_user.id)))
+    asyncio.create_task(
+        _safe_broadcast(
+            str(list_id),
+            {
+                "type": "item_created",
+                "list_id": str(list_id),
+                "payload": response.model_dump(mode="json"),
+            },
+            exclude_user_id=str(current_user.id),
+        )
+    )
     return response
 
 
@@ -132,7 +111,6 @@ async def update_item(
 
     item.updated_at = datetime.now(timezone.utc)
 
-    # Actualitza updated_at de la llista
     list_result = await db.execute(select(List).where(List.id == list_id))
     lst = list_result.scalar_one_or_none()
     if lst:
@@ -141,11 +119,17 @@ async def update_item(
     await db.commit()
     await db.refresh(item)
     response = ListItemResponse.model_validate(item)
-    asyncio.create_task(broadcast(str(list_id), {
-        "type": "item_updated",
-        "list_id": str(list_id),
-        "payload": response.model_dump(mode="json"),
-    }, exclude_user_id=str(current_user.id)))
+    asyncio.create_task(
+        _safe_broadcast(
+            str(list_id),
+            {
+                "type": "item_updated",
+                "list_id": str(list_id),
+                "payload": response.model_dump(mode="json"),
+            },
+            exclude_user_id=str(current_user.id),
+        )
+    )
     return response
 
 
@@ -167,9 +151,15 @@ async def delete_item(
         )
     await db.delete(item)
     await db.commit()
-    asyncio.create_task(broadcast(str(list_id), {
-        "type": "item_deleted",
-        "list_id": str(list_id),
-        "payload": {"item_id": str(item_id)},
-    }, exclude_user_id=str(current_user.id)))
+    asyncio.create_task(
+        _safe_broadcast(
+            str(list_id),
+            {
+                "type": "item_deleted",
+                "list_id": str(list_id),
+                "payload": {"item_id": str(item_id)},
+            },
+            exclude_user_id=str(current_user.id),
+        )
+    )
     return {"deleted": True}

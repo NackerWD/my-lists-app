@@ -646,6 +646,18 @@ remind_at (timestamptz) a list_items
 Nova taula: device_tokens (user_id, token, platform)
 ```
 
+### Patrons de disseny (Sprint 6)
+
+- **Guards HTTP**: Centralitzar autorització de llista a `Depends(require_list_role("viewer"|"editor"|"owner"))`. La factory està memoitzada (`functools.lru_cache`); cal que el primer pas comprovi existència de la fila a `lists` i retorni **404** amb `LIST_NOT_FOUND` abans de consultar `list_members` (**403** segons cas). Això evita duplicar consultes i `pragma: no cover` als handlers.
+
+- **Proves**: Mantenir les tres capes (unitari amb sessió mockada, integració amb PostgreSQL i `engine.begin()` als seeders, e2e quan escaigui). Cobertura mínima de `app` al CI: **82%** (`--cov-fail-under=82`).
+
+- **Consultes**: Evitar N+1 a `GET /lists` amb una sola `select` que inclogui comptadors via subconsultes correlacionades (`scalar_subquery` + `correlate`).
+
+- **WebSockets**: Logging amb `logging.getLogger(__name__)`, embolcall `broadcast` amb `_safe_broadcast` (captura excepcions i `warning`), heartbeat servidor amb missatge estable (`{"type":"ping"}`) i al client resposta `pong`; reconnect amb **backoff exponencial + jitter** i límit d'intents.
+
+- **Fixture `db_session` (integració)**: Obrir la sessió amb `async with async_sessionmaker(...)(...) as session` i `yield` dins el context per garantir `close` al teardown.
+
 ---
 
 ## 9. Lliçons apreses
@@ -680,7 +692,7 @@ Documentades per evitar repetir els mateixos errors en sprints futurs.
 
 12. **`autobegin=False` a `async_sessionmaker` causa `InvalidRequestError`** als helpers que fan `conn.execute()` directament. No usar mai aquesta opció.
 
-13. **`async with async_session()` en lloc de `session = async_session()` causa errors de "different event loop"** als tests de llarga durada. El fixture `db_session` ha de crear la sessió sense context manager.
+13. **Fixture `db_session` d'integració:** usar `async with async_session()` (context manager del sessionmaker) per tancar la sessió correctament. Si apareixen errors de *event loop* en proves molt llargues o tasques en segon pla sense `await`, revisar que no es comparteixi la mateixa sessió entre `asyncio.create_task` i asserts sense esperar el teardown de les tasques.
 
 ### Sprint 2 — CI/CD
 14. **El step de pip-audit ha d'usar `&&` en una sola línia.** El bloc `|` multiline de YAML fa que pip-audit s'executi en un entorn on les dependències del pas anterior (`pip install pip-audit`) poden no estar disponibles correctament. Usar sempre la forma `pip install pip-audit && pip-audit ...` en una sola instrucció `run:`.
@@ -715,5 +727,5 @@ Documentades per evitar repetir els mateixos errors en sprints futurs.
 
 ---
 
-*Última actualització: post Sprint 2*
+*Última actualització: post Sprint 6 (optimització i patrons)*
 *Repositori: https://github.com/NackerWD/my-lists-app*
