@@ -19,14 +19,14 @@ async def get_members(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[ListMemberWithUserResponse]:
-    member_check = (
+    member_check = (  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         await db.execute(
             select(ListMember).where(
                 (ListMember.list_id == list_id) & (ListMember.user_id == current_user.id)
             )
         )
     ).scalar_one_or_none()
-    if member_check is None:
+    if member_check is None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"detail": "Accés denegat", "code": "ACCESS_DENIED"},

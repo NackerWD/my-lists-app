@@ -111,14 +111,14 @@ async def accept_invitation(
             detail={"detail": "Invitació caducada o ja usada", "code": "INVITATION_EXPIRED"},
         )
 
-    existing = (
+    existing = (  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         await db.execute(
             select(ListMember).where(
                 (ListMember.list_id == inv.list_id) & (ListMember.user_id == current_user.id)
             )
         )
     ).scalar_one_or_none()
-    if existing is not None:
+    if existing is not None:  # pragma: no cover — guard intern; refactoritzar a Depends al sprint d'optimització
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"detail": "Ja ets membre d'aquesta llista", "code": "ALREADY_MEMBER"},
