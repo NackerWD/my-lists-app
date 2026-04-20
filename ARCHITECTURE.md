@@ -361,7 +361,7 @@ Connexió restaurada (@capacitor/network)
 El patró correcte per a tests async amb FastAPI + asyncpg + pytest-asyncio és:
 
 - `test_engine` — `scope="session"`, NullPool, **sense** `drop_all`/`dispose()` al teardown
-- `db_session` — `scope="function"`, creat manualment amb `session = async_session()` **sense** `async with`
+- `db_session` — `scope="function"`, `AsyncSession(engine, expire_on_commit=False)` amb `try`/`yield`/`finally` i `await session.close()` — **no** usar `async with async_session()` del sessionmaker (pot provocar `RuntimeError: Task got Future attached to a different loop` al teardown)
 - Els helpers de test que insereixen dades **HAN D'USAR `engine.begin()` directament**, MAI `db_session`
 - `autobegin=False` **NO** s'ha d'usar — trenca els helpers i causa `InvalidRequestError`
 
@@ -380,11 +380,11 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine):
-    async_session = async_sessionmaker(
-        test_engine, expire_on_commit=False, class_=AsyncSession
-    )
-    session = async_session()  # NO async with — causa 'different loop' errors
-    yield session
+    session = AsyncSession(test_engine, expire_on_commit=False)
+    try:
+        yield session
+    finally:
+        await session.close()
 
 # Helper de test — patró correcte
 async def _setup_list(engine: AsyncEngine, ...) -> uuid.UUID:
@@ -656,7 +656,7 @@ Nova taula: device_tokens (user_id, token, platform)
 
 - **WebSockets**: Logging amb `logging.getLogger(__name__)`, embolcall `broadcast` amb `_safe_broadcast` (captura excepcions i `warning`), heartbeat servidor amb missatge estable (`{"type":"ping"}`) i al client resposta `pong`; reconnect amb **backoff exponencial + jitter** i límit d'intents.
 
-- **Fixture `db_session` (integració)**: Obrir la sessió amb `async with async_sessionmaker(...)(...) as session` i `yield` dins el context per garantir `close` al teardown.
+- **Fixture `db_session` (integració)**: `AsyncSession(test_engine, expire_on_commit=False)` amb `try`/`finally` i `await session.close()`; evitar `async with async_session()` del sessionmaker si provoca errors de *event loop* al teardown.
 
 ---
 
@@ -692,7 +692,7 @@ Documentades per evitar repetir els mateixos errors en sprints futurs.
 
 12. **`autobegin=False` a `async_sessionmaker` causa `InvalidRequestError`** als helpers que fan `conn.execute()` directament. No usar mai aquesta opció.
 
-13. **Fixture `db_session` d'integració:** usar `async with async_session()` (context manager del sessionmaker) per tancar la sessió correctament. Si apareixen errors de *event loop* en proves molt llargues o tasques en segon pla sense `await`, revisar que no es comparteixi la mateixa sessió entre `asyncio.create_task` i asserts sense esperar el teardown de les tasques.
+13. **Fixture `db_session` d'integració:** no usar `async with async_sessionmaker(...)(...)` si al teardown apareix `RuntimeError: Task got Future attached to a different loop`; el patró estable és `AsyncSession(engine, ...)` + `try`/`yield`/`finally` amb `await session.close()`. En proves amb tasques en segon pla, revisar que no es comparteixi la sessió sense esperar el seu teardown.
 
 ### Sprint 2 — CI/CD
 14. **El step de pip-audit ha d'usar `&&` en una sola línia.** El bloc `|` multiline de YAML fa que pip-audit s'executi en un entorn on les dependències del pas anterior (`pip install pip-audit`) poden no estar disponibles correctament. Usar sempre la forma `pip install pip-audit && pip-audit ...` en una sola instrucció `run:`.
