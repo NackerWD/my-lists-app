@@ -8,7 +8,7 @@ from app.models.list_type import ListType
 from app.models.user import User
 from app.schemas.list_type import ListTypeResponse
 
-router = APIRouter(prefix="/list-types", tags=["list-types"])
+router = APIRouter(tags=["list-types"])  # prefix només a api/v1/router.py (include_router)
 
 
 @router.get("/", response_model=list[ListTypeResponse])
