@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import NavBar from "@/components/ui/NavBar";
 import SideMenu from "@/components/ui/SideMenu";
 import ItemRow from "@/components/items/ItemRow";
+import { ItemMetadataFields } from "@/components/lists/ItemMetadataFields";
 import InviteModal from "@/components/lists/InviteModal";
 import PresenceIndicator from "@/components/lists/PresenceIndicator";
 import { getList } from "@/lib/api/lists";
@@ -14,7 +15,7 @@ import { getMembers, removeMember } from "@/lib/api/members";
 import { useListSocket } from "@/lib/hooks/useListSocket";
 import { useOfflineQueue } from "@/lib/hooks/useOfflineQueue";
 import { supabase } from "@/lib/supabase";
-import type { ListItemResponse } from "@/lib/types";
+import type { ListItemCreate, ListItemResponse } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -26,6 +27,8 @@ export default function ListDetailPage() {
   const { isOnline, enqueue } = useOfflineQueue();
   const [menuOpen, setMenuOpen] = useState(false);
   const [newContent, setNewContent] = useState("");
+  const [itemMetadata, setItemMetadata] = useState<Record<string, unknown>>({});
+  const [newDueDate, setNewDueDate] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
 
@@ -53,8 +56,10 @@ export default function ListDetailPage() {
     enabled: showMembers && !!listId,
   });
 
+  const listTypeSlug = list?.list_type_slug ?? "todo";
+
   const createMutation = useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async (payload: ListItemCreate) => {
       if (!isOnline) {
         let optimistic: ListItemResponse | null = null;
         queryClient.setQueryData<ListItemResponse[]>(["items", listId], (old) => {
@@ -63,13 +68,13 @@ export default function ListDetailPage() {
             id: `local-${Date.now()}`,
             list_id: listId,
             created_by: null,
-            content,
+            content: payload.content,
             is_checked: false,
             position: prev.length,
-            due_date: null,
-            priority: null,
-            remind_at: null,
-            metadata_: null,
+            due_date: payload.due_date ?? null,
+            priority: payload.priority ?? null,
+            remind_at: payload.remind_at ?? null,
+            metadata: payload.metadata ?? null,
             created_at: new Date().toISOString(),
             updated_at: null,
           };
@@ -78,16 +83,18 @@ export default function ListDetailPage() {
         await enqueue({
           method: "POST",
           url: `${API_BASE}/api/v1/lists/${listId}/items`,
-          body: { content },
+          body: payload,
           queryKeys: [["items", listId], ["lists"]],
         });
         if (!optimistic) throw new Error("Optimistic item not created");
         return optimistic;
       }
-      return createItem(listId, { content });
+      return createItem(listId, payload);
     },
     onSuccess: () => {
       setNewContent("");
+      setItemMetadata({});
+      setNewDueDate("");
       if (isOnline) {
         queryClient.invalidateQueries({ queryKey: ["items", listId] });
         queryClient.invalidateQueries({ queryKey: ["lists"] });
@@ -153,19 +160,33 @@ export default function ListDetailPage() {
     return session?.user?.id ?? null;
   }
 
+  function buildCreatePayload(): ListItemCreate | null {
+    const content = newContent.trim();
+    if (!content) return null;
+    const payload: ListItemCreate = { content };
+    const cleanedMeta = Object.fromEntries(
+      Object.entries(itemMetadata).filter(
+        ([, v]) => v !== undefined && v !== "" && !(typeof v === "number" && Number.isNaN(v))
+      )
+    );
+    if (Object.keys(cleanedMeta).length > 0) payload.metadata = cleanedMeta;
+    if (newDueDate.trim()) payload.due_date = new Date(newDueDate).toISOString();
+    return payload;
+  }
+
   function handleAddItem(e: React.FormEvent) {
     e.preventDefault();
-    const content = newContent.trim();
-    if (!content) return;
-    createMutation.mutate(content);
+    const payload = buildCreatePayload();
+    if (!payload) return;
+    createMutation.mutate(payload);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const content = newContent.trim();
-      if (!content) return;
-      createMutation.mutate(content);
+      const payload = buildCreatePayload();
+      if (!payload) return;
+      createMutation.mutate(payload);
     }
   }
 
@@ -274,6 +295,7 @@ export default function ListDetailPage() {
                   <ItemRow
                     key={item.id}
                     item={item}
+                    listTypeSlug={listTypeSlug}
                     onToggle={(id, checked) =>
                       toggleMutation.mutate({ id, checked })
                     }
@@ -286,22 +308,40 @@ export default function ListDetailPage() {
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
-        <form onSubmit={handleAddItem} className="max-w-2xl mx-auto flex gap-2">
-          <input
-            type="text"
-            value={newContent}
-            onChange={(e) => setNewContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Afegir ítem nou…"
-            className="flex-1 rounded-xl border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={!newContent.trim() || createMutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40"
-          >
-            Afegir
-          </button>
+        <form onSubmit={handleAddItem} className="max-w-2xl mx-auto flex flex-col gap-2">
+          {(listTypeSlug === "tasks" || listTypeSlug === "todo") && (
+            <input
+              type="datetime-local"
+              value={newDueDate}
+              onChange={(e) => setNewDueDate(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Data límit"
+            />
+          )}
+          {(listTypeSlug === "shopping" || listTypeSlug === "wishlist") && (
+            <ItemMetadataFields
+              listType={listTypeSlug}
+              metadata={itemMetadata}
+              onChange={setItemMetadata}
+            />
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newContent}
+              onChange={(e) => setNewContent(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Afegir ítem nou…"
+              className="flex-1 rounded-xl border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={!newContent.trim() || createMutation.isPending}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40"
+            >
+              Afegir
+            </button>
+          </div>
         </form>
       </div>
 

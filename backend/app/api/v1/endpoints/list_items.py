@@ -108,6 +108,8 @@ async def update_item(
         item.priority = body.priority
     if body.remind_at is not None:
         item.remind_at = body.remind_at
+    if body.metadata_ is not None:
+        item.metadata_ = body.metadata_
 
     item.updated_at = datetime.now(timezone.utc)
 

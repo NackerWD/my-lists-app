@@ -50,6 +50,12 @@ def _exec_row_one(mcnt: int, icnt: int):
     return r
 
 
+def _exec_one_or_none(row_tuple):
+    r = MagicMock()
+    r.one_or_none.return_value = row_tuple
+    return r
+
+
 class TestGetListsUnit:
     async def test_get_lists_empty(
         self, client_full_bypass: tuple[AsyncClient, AsyncMock]
@@ -67,7 +73,7 @@ class TestGetListsUnit:
     ) -> None:
         client, mock_db = client_full_bypass
         lst = _make_list(title="Una")
-        mock_db.execute = AsyncMock(return_value=_exec_all([(lst, 1, 0)]))
+        mock_db.execute = AsyncMock(return_value=_exec_all([(lst, None, None, 1, 0)]))
 
         r = await client.get("/api/v1/lists/")
         assert r.status_code == 200
@@ -88,7 +94,7 @@ class TestGetListByIdUnit:
         lst = _make_list(list_id=lid, title="Detall")
         mock_db.execute = AsyncMock(
             side_effect=[
-                _exec_scalar_one_or_none(lst),
+                _exec_one_or_none((lst, None, None)),
                 _exec_row_one(2, 3),
             ]
         )
@@ -104,7 +110,7 @@ class TestGetListByIdUnit:
         self, client_full_bypass: tuple[AsyncClient, AsyncMock]
     ) -> None:
         client, mock_db = client_full_bypass
-        mock_db.execute = AsyncMock(return_value=_exec_scalar_one_or_none(None))
+        mock_db.execute = AsyncMock(return_value=_exec_one_or_none(None))
 
         r = await client.get(f"/api/v1/lists/{uuid.uuid4()}")
         assert r.status_code == 404
@@ -139,7 +145,8 @@ class TestUpdateDeleteListUnit:
         lst = _make_list(list_id=lid, title="Antic")
         mock_db.execute = AsyncMock(
             side_effect=[
-                _exec_scalar_one_or_none(lst),
+                _exec_one_or_none((lst, None, None)),
+                _exec_one_or_none((lst, None, None)),
                 _exec_row_one(1, 0),
             ]
         )
@@ -161,7 +168,7 @@ class TestUpdateDeleteListUnit:
         client, mock_db = client_full_bypass
         lid = uuid.uuid4()
         lst = _make_list(list_id=lid)
-        mock_db.execute = AsyncMock(return_value=_exec_scalar_one_or_none(lst))
+        mock_db.execute = AsyncMock(return_value=_exec_one_or_none((lst, None, None)))
 
         r = await client.delete(f"/api/v1/lists/{lid}")
         assert r.status_code == 200
