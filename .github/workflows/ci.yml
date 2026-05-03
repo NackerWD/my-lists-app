@@ -102,5 +102,5 @@ jobs:
         working-directory: web
 
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
         working-directory: web

@@ -18,8 +18,8 @@ async def _setup_user_and_token(
     async with test_engine.begin() as conn:
         await conn.execute(
             text("""
-                INSERT INTO users (id, email, display_name, created_at, updated_at)
-                VALUES (:id, :email, 'Test User', now(), now())
+                INSERT INTO users (id, email, display_name, created_at)
+                VALUES (:id, :email, 'Test User', now())
                 ON CONFLICT DO NOTHING
             """),
             {"id": str(user_id), "email": f"{user_id}@test.com"},
