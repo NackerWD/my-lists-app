@@ -109,6 +109,58 @@ class TestCreateItemUnit:
         mock_db.commit.assert_awaited()
         mock_db.refresh.assert_awaited()
 
+    @patch("app.api.v1.endpoints.list_items.asyncio.create_task", MagicMock())
+    async def test_create_item_with_shopping_metadata(
+        self, client_full_bypass: tuple[AsyncClient, AsyncMock]
+    ) -> None:
+        """POST /items amb metadata de shopping."""
+        client, mock_db = client_full_bypass
+        lid = uuid.uuid4()
+        lst = _make_list(lid)
+        mock_db.execute = AsyncMock(
+            side_effect=[
+                _exec_scalar(None),
+                _exec_scalar_one_or_none(lst),
+            ]
+        )
+        meta = {"quantity": 2, "unit": "kg", "price": 3.50}
+
+        r = await client.post(
+            f"/api/v1/lists/{lid}/items",
+            json={"content": "Oli", "metadata": meta},
+        )
+        assert r.status_code == 201
+        body = r.json()
+        assert body["content"] == "Oli"
+        assert body["metadata"] == meta
+        added = mock_db.add.call_args[0][0]
+        assert added.metadata_ == meta
+
+    @patch("app.api.v1.endpoints.list_items.asyncio.create_task", MagicMock())
+    async def test_create_item_with_wishlist_metadata(
+        self, client_full_bypass: tuple[AsyncClient, AsyncMock]
+    ) -> None:
+        """POST /items amb metadata de wishlist."""
+        client, mock_db = client_full_bypass
+        lid = uuid.uuid4()
+        lst = _make_list(lid)
+        mock_db.execute = AsyncMock(
+            side_effect=[
+                _exec_scalar(None),
+                _exec_scalar_one_or_none(lst),
+            ]
+        )
+        meta = {"url": "https://example.com", "price": 29.99}
+
+        r = await client.post(
+            f"/api/v1/lists/{lid}/items",
+            json={"content": "Llibre", "metadata": meta},
+        )
+        assert r.status_code == 201
+        assert r.json()["metadata"] == meta
+        added = mock_db.add.call_args[0][0]
+        assert added.metadata_ == meta
+
 
 class TestUpdateDeleteItemUnit:
     @patch("app.api.v1.endpoints.list_items.asyncio.create_task", MagicMock())

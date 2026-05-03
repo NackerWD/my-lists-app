@@ -4,6 +4,8 @@ export interface ListResponse {
   id: string;
   owner_id: string;
   list_type_id: string | null;
+  list_type_slug?: string | null;
+  list_type_label?: string | null;
   title: string;
   description: string | null;
   is_archived: boolean;
@@ -36,7 +38,7 @@ export interface ListItemResponse {
   priority: "high" | "medium" | "low" | null;
   remind_at: string | null;
   reminded_at?: string | null;
-  metadata_: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -46,7 +48,7 @@ export interface ListItemCreate {
   due_date?: string | null;
   priority?: "high" | "medium" | "low" | null;
   remind_at?: string | null;
-  metadata_?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   position?: number;
 }
 
@@ -57,6 +59,7 @@ export interface ListItemUpdate {
   due_date?: string | null;
   priority?: "high" | "medium" | "low" | null;
   remind_at?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface MemberResponse {

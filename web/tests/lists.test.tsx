@@ -18,6 +18,17 @@ jest.mock("@/lib/api/lists", () => ({
   deleteList: jest.fn(),
 }));
 
+jest.mock("@/lib/hooks/useListTypes", () => ({
+  useListTypes: () => ({
+    data: [
+      { id: "type-todo", slug: "todo", label: "General", icon: "check-square" },
+      { id: "type-shop", slug: "shopping", label: "Compres", icon: "shopping-cart" },
+    ],
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -55,7 +66,7 @@ const mockItem: ListItemResponse = {
   due_date: null,
   priority: null,
   remind_at: null,
-  metadata_: null,
+  metadata: null,
   created_at: "2024-01-01T10:00:00Z",
   updated_at: null,
 };
@@ -204,7 +215,7 @@ describe("ItemRow", () => {
       <ItemRow item={checkedItem} onToggle={() => {}} onDelete={() => {}} />
     );
     const text = screen.getByText("Comprar llet");
-    expect(text.className).toContain("line-through");
+    expect(text.parentElement?.className).toContain("line-through");
   });
 });
 
@@ -284,6 +295,7 @@ describe("NewListModal", () => {
       expect(createList).toHaveBeenCalledWith({
         title: "Nova llista",
         description: null,
+        list_type_id: "type-todo",
       });
     });
   });

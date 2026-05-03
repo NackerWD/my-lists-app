@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ListTypeSelector } from "@/components/lists/ListTypeSelector";
 import { createList } from "@/lib/api/lists";
+import { useListTypes } from "@/lib/hooks/useListTypes";
 
 interface Props {
   isOpen: boolean;
@@ -12,15 +14,27 @@ interface Props {
 export default function NewListModal({ isOpen, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedTypeId, setSelectedTypeId] = useState("");
   const [titleError, setTitleError] = useState("");
   const queryClient = useQueryClient();
+  const { data: types } = useListTypes();
+
+  const defaultTypeId =
+    types?.find((t) => t.slug === "todo")?.id ?? types?.[0]?.id ?? "";
+  const resolvedTypeId = selectedTypeId || defaultTypeId;
 
   const mutation = useMutation({
-    mutationFn: () => createList({ title: title.trim(), description: description.trim() || null }),
+    mutationFn: () =>
+      createList({
+        title: title.trim(),
+        description: description.trim() || null,
+        list_type_id: resolvedTypeId || null,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lists"] });
       setTitle("");
       setDescription("");
+      setSelectedTypeId("");
       setTitleError("");
       onClose();
     },
@@ -32,6 +46,10 @@ export default function NewListModal({ isOpen, onClose }: Props) {
       setTitleError("El títol és obligatori");
       return;
     }
+    if (!resolvedTypeId) {
+      setTitleError("Selecciona un tipus de llista");
+      return;
+    }
     setTitleError("");
     mutation.mutate();
   }
@@ -40,6 +58,7 @@ export default function NewListModal({ isOpen, onClose }: Props) {
     setTitle("");
     setDescription("");
     setTitleError("");
+    setSelectedTypeId("");
     mutation.reset();
     onClose();
   }
@@ -53,12 +72,17 @@ export default function NewListModal({ isOpen, onClose }: Props) {
       aria-modal="true"
       aria-labelledby="new-list-title"
     >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
         <h2 id="new-list-title" className="text-lg font-semibold text-gray-900 mb-4">
           Nova llista
         </h2>
 
         <form onSubmit={handleSubmit} noValidate>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tipus</label>
+            <ListTypeSelector value={resolvedTypeId} onChange={setSelectedTypeId} />
+          </div>
+
           <div className="mb-4">
             <label
               htmlFor="list-title"
