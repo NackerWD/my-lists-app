@@ -6,17 +6,21 @@ from app.api.v1.endpoints import (
     list_invitations,
     list_items,
     list_members,
-    list_types,
     lists,
     users,
 )
+from app.api.v1.endpoints import list_types
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router)
 api_router.include_router(device_tokens.router)
 api_router.include_router(users.router)
-api_router.include_router(list_types.router)
+api_router.include_router(
+    list_types.router,
+    prefix="/list-types",
+    tags=["list-types"],
+)
 api_router.include_router(lists.router)
 api_router.include_router(list_items.router)
 api_router.include_router(list_members.router)
