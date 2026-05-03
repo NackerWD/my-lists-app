@@ -44,10 +44,9 @@ async def test_engine():
 @pytest_asyncio.fixture
 async def db_session(test_engine):
     session = AsyncSession(test_engine, expire_on_commit=False)
-    try:
-        yield session
-    finally:
-        await session.close()
+    yield session
+    # NullPool: no cal tancar explícitament; el close() al teardown
+    # causa RuntimeError: Task got Future attached to a different loop
 
 
 @dataclass
