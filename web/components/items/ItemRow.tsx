@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import type { ListItemResponse } from "@/lib/types";
+import { ItemMetadataSummary } from "@/components/lists/ItemMetadataFields";
 
 interface Props {
   item: ListItemResponse;
+  listTypeSlug?: string;
   onToggle: (id: string, checked: boolean) => void;
   onDelete: (id: string) => void;
 }
@@ -28,7 +30,7 @@ function formatDueDate(iso: string | null): string | null {
   return date.toLocaleDateString("ca-ES", { day: "numeric", month: "short" });
 }
 
-export default function ItemRow({ item, onToggle, onDelete }: Props) {
+export default function ItemRow({ item, listTypeSlug = "todo", onToggle, onDelete }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const priority = item.priority ? PRIORITY_LABELS[item.priority] : null;
   const dueDateLabel = formatDueDate(item.due_date);
@@ -53,7 +55,8 @@ export default function ItemRow({ item, onToggle, onDelete }: Props) {
       <span
         className={`flex-1 text-sm ${item.is_checked ? "line-through text-gray-400" : "text-gray-800"}`}
       >
-        {item.content}
+        <span className="block">{item.content}</span>
+        <ItemMetadataSummary listType={listTypeSlug} metadata={item.metadata} />
       </span>
 
       <div className="flex items-center gap-2 shrink-0">

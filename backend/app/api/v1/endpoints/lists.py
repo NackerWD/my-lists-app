@@ -11,6 +11,7 @@ from app.core.security import get_current_user, require_list_role
 from app.models.list import List
 from app.models.list_item import ListItem
 from app.models.list_member import ListMember
+from app.models.list_type import ListType
 from app.models.user import User
 from app.schemas.list import ListCreate, ListResponse, ListUpdate
 from app.ws.handler import _safe_broadcast
@@ -18,7 +19,29 @@ from app.ws.handler import _safe_broadcast
 router = APIRouter(prefix="/lists", tags=["lists"])
 
 
-async def _to_response(db: AsyncSession, lst: List) -> ListResponse:
+def _select_list_with_type(list_id: uuid.UUID):
+    return (
+        select(List, ListType.slug, ListType.label)
+        .outerjoin(ListType, List.list_type_id == ListType.id)
+        .where(List.id == list_id)
+    )
+
+
+async def _fetch_list_bundle(db: AsyncSession, list_id: uuid.UUID) -> tuple[List, str | None, str | None] | None:
+    row = (await db.execute(_select_list_with_type(list_id))).one_or_none()
+    if row is None:
+        return None
+    lst, slug, label = row
+    return lst, slug, label
+
+
+async def _to_response(
+    db: AsyncSession,
+    lst: List,
+    *,
+    list_type_slug: str | None = None,
+    list_type_label: str | None = None,
+) -> ListResponse:
     mc_sq = (
         select(func.count(ListMember.id))
         .where(ListMember.list_id == lst.id)
@@ -33,6 +56,8 @@ async def _to_response(db: AsyncSession, lst: List) -> ListResponse:
     data = ListResponse.model_validate(lst)
     data.member_count = int(row[0])
     data.item_count = int(row[1])
+    data.list_type_slug = list_type_slug
+    data.list_type_label = list_type_label
     return data
 
 
@@ -54,7 +79,8 @@ async def get_lists(
         .scalar_subquery()
     )
     stmt = (
-        select(List, member_count_sq.label("member_count"), item_count_sq.label("item_count"))
+        select(List, ListType.slug, ListType.label, member_count_sq, item_count_sq)
+        .outerjoin(ListType, List.list_type_id == ListType.id)
         .join(ListMember, (ListMember.list_id == List.id) & (ListMember.user_id == current_user.id))
         .where(List.is_archived.is_(False))
         .order_by(List.updated_at.desc())
@@ -62,10 +88,12 @@ async def get_lists(
     result = await db.execute(stmt)
     rows = result.all()
     out: list[ListResponse] = []
-    for lst, mcnt, icnt in rows:
+    for lst, slug, label, mcnt, icnt in rows:
         data = ListResponse.model_validate(lst)
         data.member_count = int(mcnt)
         data.item_count = int(icnt)
+        data.list_type_slug = slug
+        data.list_type_label = label
         out.append(data)
     return out
 
@@ -95,9 +123,20 @@ async def create_list(
 
     await db.commit()
     await db.refresh(lst)
+
+    slug: str | None = None
+    label: str | None = None
+    if lst.list_type_id is not None:
+        lt_row = await db.execute(select(ListType).where(ListType.id == lst.list_type_id))
+        lt = lt_row.scalar_one_or_none()
+        if lt is not None:
+            slug, label = lt.slug, lt.label
+
     data = ListResponse.model_validate(lst)
     data.member_count = 1
     data.item_count = 0
+    data.list_type_slug = slug
+    data.list_type_label = label
     return data
 
 
@@ -107,14 +146,14 @@ async def get_list(
     current_user: User = Depends(require_list_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse:
-    result = await db.execute(select(List).where(List.id == list_id))
-    lst = result.scalar_one_or_none()
-    if lst is None:
+    bundle = await _fetch_list_bundle(db, list_id)
+    if bundle is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
         )
-    return await _to_response(db, lst)
+    lst, slug, label = bundle
+    return await _to_response(db, lst, list_type_slug=slug, list_type_label=label)
 
 
 @router.patch("/{list_id}", response_model=ListResponse)
@@ -124,13 +163,13 @@ async def update_list(
     current_user: User = Depends(require_list_role("editor")),
     db: AsyncSession = Depends(get_db),
 ) -> ListResponse:
-    result = await db.execute(select(List).where(List.id == list_id))
-    lst = result.scalar_one_or_none()
-    if lst is None:
+    bundle = await _fetch_list_bundle(db, list_id)
+    if bundle is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
         )
+    lst, _, _ = bundle
 
     if body.title is not None:
         lst.title = body.title
@@ -142,7 +181,16 @@ async def update_list(
     lst.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(lst)
-    response = await _to_response(db, lst)
+
+    bundle2 = await _fetch_list_bundle(db, list_id)
+    if bundle2 is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
+        )
+    lst2, slug2, label2 = bundle2
+
+    response = await _to_response(db, lst2, list_type_slug=slug2, list_type_label=label2)
     asyncio.create_task(
         _safe_broadcast(
             str(list_id),
@@ -163,13 +211,13 @@ async def delete_list(
     current_user: User = Depends(require_list_role("owner")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = await db.execute(select(List).where(List.id == list_id))
-    lst = result.scalar_one_or_none()
-    if lst is None:
+    bundle = await _fetch_list_bundle(db, list_id)
+    if bundle is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
         )
+    lst, _, _ = bundle
     await db.delete(lst)
     await db.commit()
     asyncio.create_task(

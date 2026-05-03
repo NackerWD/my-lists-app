@@ -22,6 +22,8 @@ class ListResponse(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
     list_type_id: uuid.UUID | None
+    list_type_slug: str | None = None
+    list_type_label: str | None = None
     title: str
     description: str | None
     is_archived: bool
