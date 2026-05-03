@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "710581183915",
+    "project_id": "app-compres",
+    "storage_bucket": "app-compres.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710581183915:android:89ee162bb837ad27449eee",
+        "android_client_info": {
+          "package_name": "com.masterlist.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtQE5ll6fLAZ8ArpPie8ZiIg91RqcqCQc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
