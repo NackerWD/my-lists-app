@@ -1,6 +1,6 @@
-"""add_list_types_shopping_tasks_wishlist
+"""add_list_types
 
-Revision ID: 0006_add_list_types_shopping_tasks_wishlist
+Revision ID: 0006_add_list_types
 Revises: 0005_offline_push_schema
 Create Date: 2026-05-03 12:00:00.000000
 
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0006_add_list_types_shopping_tasks_wishlist"
+revision: str = "0006_add_list_types"
 down_revision: Union[str, None] = "0005_offline_push_schema"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
