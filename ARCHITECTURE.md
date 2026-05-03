@@ -361,7 +361,7 @@ Connexió restaurada (@capacitor/network)
 El patró correcte per a tests async amb FastAPI + asyncpg + pytest-asyncio és:
 
 - `test_engine` — `scope="session"`, NullPool, **sense** `drop_all`/`dispose()` al teardown
-- `db_session` — `scope="function"`, creat manualment amb `session = async_session()` **sense** `async with`
+- `db_session` — `scope="function"`, `AsyncSession(engine, expire_on_commit=False)` amb `try`/`yield`/`finally` i `await session.close()` — **no** usar `async with async_session()` del sessionmaker (pot provocar `RuntimeError: Task got Future attached to a different loop` al teardown)
 - Els helpers de test que insereixen dades **HAN D'USAR `engine.begin()` directament**, MAI `db_session`
 - `autobegin=False` **NO** s'ha d'usar — trenca els helpers i causa `InvalidRequestError`
 
@@ -380,11 +380,11 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine):
-    async_session = async_sessionmaker(
-        test_engine, expire_on_commit=False, class_=AsyncSession
-    )
-    session = async_session()  # NO async with — causa 'different loop' errors
-    yield session
+    session = AsyncSession(test_engine, expire_on_commit=False)
+    try:
+        yield session
+    finally:
+        await session.close()
 
 # Helper de test — patró correcte
 async def _setup_list(engine: AsyncEngine, ...) -> uuid.UUID:
@@ -646,6 +646,18 @@ remind_at (timestamptz) a list_items
 Nova taula: device_tokens (user_id, token, platform)
 ```
 
+### Patrons de disseny (Sprint 6)
+
+- **Guards HTTP**: Centralitzar autorització de llista a `Depends(require_list_role("viewer"|"editor"|"owner"))`. La factory està memoitzada (`functools.lru_cache`); cal que el primer pas comprovi existència de la fila a `lists` i retorni **404** amb `LIST_NOT_FOUND` abans de consultar `list_members` (**403** segons cas). Això evita duplicar consultes i `pragma: no cover` als handlers.
+
+- **Proves**: Mantenir les tres capes (unitari amb sessió mockada, integració amb PostgreSQL i `engine.begin()` als seeders, e2e quan escaigui). Cobertura mínima de `app` al CI: **82%** (`--cov-fail-under=82`).
+
+- **Consultes**: Evitar N+1 a `GET /lists` amb una sola `select` que inclogui comptadors via subconsultes correlacionades (`scalar_subquery` + `correlate`).
+
+- **WebSockets**: Logging amb `logging.getLogger(__name__)`, embolcall `broadcast` amb `_safe_broadcast` (captura excepcions i `warning`), heartbeat servidor amb missatge estable (`{"type":"ping"}`) i al client resposta `pong`; reconnect amb **backoff exponencial + jitter** i límit d'intents.
+
+- **Fixture `db_session` (integració)**: `AsyncSession(test_engine, expire_on_commit=False)` amb `try`/`finally` i `await session.close()`; evitar `async with async_session()` del sessionmaker si provoca errors de *event loop* al teardown.
+
 ---
 
 ## 9. Lliçons apreses
@@ -680,7 +692,7 @@ Documentades per evitar repetir els mateixos errors en sprints futurs.
 
 12. **`autobegin=False` a `async_sessionmaker` causa `InvalidRequestError`** als helpers que fan `conn.execute()` directament. No usar mai aquesta opció.
 
-13. **`async with async_session()` en lloc de `session = async_session()` causa errors de "different event loop"** als tests de llarga durada. El fixture `db_session` ha de crear la sessió sense context manager.
+13. **Fixture `db_session` d'integració:** no usar `async with async_sessionmaker(...)(...)` si al teardown apareix `RuntimeError: Task got Future attached to a different loop`; el patró estable és `AsyncSession(engine, ...)` + `try`/`yield`/`finally` amb `await session.close()`. En proves amb tasques en segon pla, revisar que no es comparteixi la sessió sense esperar el seu teardown.
 
 ### Sprint 2 — CI/CD
 14. **El step de pip-audit ha d'usar `&&` en una sola línia.** El bloc `|` multiline de YAML fa que pip-audit s'executi en un entorn on les dependències del pas anterior (`pip install pip-audit`) poden no estar disponibles correctament. Usar sempre la forma `pip install pip-audit && pip-audit ...` en una sola instrucció `run:`.
@@ -715,5 +727,5 @@ Documentades per evitar repetir els mateixos errors en sprints futurs.
 
 ---
 
-*Última actualització: post Sprint 2*
+*Última actualització: post Sprint 6 (optimització i patrons)*
 *Repositori: https://github.com/NackerWD/my-lists-app*

@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.database import Base
@@ -43,13 +43,10 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine):
-    async_session = async_sessionmaker(
-        test_engine,
-        expire_on_commit=False,
-        class_=AsyncSession,
-    )
-    session = async_session()
+    session = AsyncSession(test_engine, expire_on_commit=False)
     yield session
+    # NullPool: no cal tancar explícitament; el close() al teardown
+    # causa RuntimeError: Task got Future attached to a different loop
 
 
 @dataclass

@@ -10,6 +10,7 @@ from supabase import Client, create_client
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.list import List
 from app.models.list_member import ListMember
 from app.models.user import User
 
@@ -88,6 +89,13 @@ def require_list_role(minimum_role: str):
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        list_row = await db.execute(select(List.id).where(List.id == list_id))
+        if list_row.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"detail": "Llista no trobada", "code": "LIST_NOT_FOUND"},
+            )
+
         result = await db.execute(
             select(ListMember).where(
                 ListMember.list_id == list_id,

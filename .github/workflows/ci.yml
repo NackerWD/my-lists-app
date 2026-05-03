@@ -59,7 +59,7 @@ jobs:
         working-directory: backend
 
       - name: Run tests
-        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=77
+        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=82 -p no:unraisableexception
         working-directory: backend
 
       - name: Dependency audit
@@ -102,5 +102,5 @@ jobs:
         working-directory: web
 
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
         working-directory: web

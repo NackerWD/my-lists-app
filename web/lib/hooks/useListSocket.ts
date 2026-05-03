@@ -9,6 +9,19 @@ const WS_BASE =
     .replace("https://", "wss://")
     .replace("http://", "ws://");
 
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+const RECONNECT_MAX_ATTEMPTS = 25;
+
+function nextReconnectDelayMs(attempt: number): number {
+  const exp = Math.min(
+    RECONNECT_MAX_MS,
+    RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1),
+  );
+  const jitter = 0.85 + Math.random() * 0.3;
+  return Math.min(RECONNECT_MAX_MS, Math.round(exp * jitter));
+}
+
 interface ListEvent {
   type: string;
   list_id: string;
@@ -23,15 +36,18 @@ interface UseListSocketReturn {
 export function useListSocket(listId: string): UseListSocketReturn {
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempt = useRef(0);
   const queryClient = useQueryClient();
   const [connectedCount, setConnectedCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const unmounted = useRef(false);
-  // Store connect fn in a ref so onclose can call it without a circular dep
-  const connectFn = useRef<() => Promise<void>>(async () => { /* initialised in useEffect */ });
+  const connectFn = useRef<() => Promise<void>>(async () => {
+    /* initialised in useEffect */
+  });
 
   useEffect(() => {
     unmounted.current = false;
+    reconnectAttempt.current = 0;
 
     connectFn.current = async () => {
       if (unmounted.current) return;
@@ -51,6 +67,7 @@ export function useListSocket(listId: string): UseListSocketReturn {
           socket.close();
           return;
         }
+        reconnectAttempt.current = 0;
         setIsConnected(true);
       };
 
@@ -59,6 +76,15 @@ export function useListSocket(listId: string): UseListSocketReturn {
         try {
           data = JSON.parse(event.data as string) as ListEvent;
         } catch {
+          return;
+        }
+
+        if (data.type === "ping") {
+          try {
+            socket.send(JSON.stringify({ type: "pong" }));
+          } catch {
+            /* ignore */
+          }
           return;
         }
 
@@ -93,11 +119,15 @@ export function useListSocket(listId: string): UseListSocketReturn {
 
       socket.onclose = () => {
         setIsConnected(false);
-        if (!unmounted.current) {
-          reconnectTimer.current = setTimeout(() => {
-            void connectFn.current?.();
-          }, 3000);
+        if (unmounted.current) return;
+        reconnectAttempt.current += 1;
+        if (reconnectAttempt.current > RECONNECT_MAX_ATTEMPTS) {
+          return;
         }
+        const delay = nextReconnectDelayMs(reconnectAttempt.current);
+        reconnectTimer.current = setTimeout(() => {
+          void connectFn.current?.();
+        }, delay);
       };
     };
 

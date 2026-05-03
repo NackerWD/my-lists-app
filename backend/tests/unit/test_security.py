@@ -100,13 +100,31 @@ class TestGetCurrentUser:
 
 
 class TestRequireListRole:
-    def _make_member_db(self, member: object) -> AsyncMock:
-        """BD mockada que retorna `member` per a la consulta de ListMember."""
+    def _make_member_db(self, member: object, *, list_exists: bool = True) -> AsyncMock:
+        """BD mockada: primer execute = existència de llista; segon = ListMember."""
         db = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = member
-        db.execute = AsyncMock(return_value=result_mock)
+        r_list = MagicMock()
+        r_list.scalar_one_or_none.return_value = uuid.uuid4() if list_exists else None
+        r_member = MagicMock()
+        r_member.scalar_one_or_none.return_value = member
+        db.execute = AsyncMock(side_effect=[r_list, r_member])
         return db
+
+    async def test_list_not_found_raises_404(self) -> None:
+        check = require_list_role("viewer")
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+        mock_db = self._make_member_db(member=None, list_exists=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await check(
+                list_id=uuid.uuid4(),
+                current_user=mock_user,  # type: ignore[arg-type]
+                db=mock_db,  # type: ignore[arg-type]
+            )
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["code"] == "LIST_NOT_FOUND"
 
     async def test_no_membership_raises_403_access_denied(self) -> None:
         """Si l'usuari no és membre de la llista, s'ha de retornar 403 ACCESS_DENIED."""
