@@ -139,3 +139,84 @@ async def test_marks_reminded_at() -> None:
             await send_reminders()
             assert item.reminded_at is not None
             db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_push_calls_fcm(mocker):
+    """_send_push crida firebase_admin.messaging.send_each_async quan existeix."""
+    mocker.patch("app.scheduler.firebase_admin._apps", {"default": object()})
+    mock_send = mocker.patch(
+        "app.scheduler.messaging.send_each_async",
+        return_value=MagicMock(success_count=1, failure_count=0),
+    )
+    mock_item = MagicMock()
+    mock_item.content = "Test ítem"
+    mock_item.list_id = uuid.uuid4()
+    mock_item.id = uuid.uuid4()
+
+    from app.scheduler import _send_push
+
+    await _send_push("fake-token-123", mock_item)
+
+    mock_send.assert_called_once()
+    call_args = mock_send.call_args[0][0]
+    assert len(call_args) == 1
+    assert call_args[0].token == "fake-token-123"
+
+
+@pytest.mark.asyncio
+async def test_send_push_without_firebase_init(mocker):
+    """Sense Firebase inicialitzat no es crida FCM i no es propaga cap error."""
+    mocker.patch("app.scheduler.firebase_admin._apps", {})
+    mock_send = mocker.patch(
+        "app.scheduler.messaging.send_each_async",
+        side_effect=Exception("Firebase not initialized"),
+    )
+    mock_item = MagicMock()
+    mock_item.content = "Test"
+    mock_item.list_id = uuid.uuid4()
+    mock_item.id = uuid.uuid4()
+
+    from app.scheduler import _send_push
+
+    await _send_push("fake-token", mock_item)
+
+    mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_push_handles_invalid_token(mocker):
+    """FCM pot reportar fallades per token; es registra i no es trenca el flux."""
+    mocker.patch("app.scheduler.firebase_admin._apps", {"default": object()})
+    mock_send = mocker.patch(
+        "app.scheduler.messaging.send_each_async",
+        return_value=MagicMock(success_count=0, failure_count=1),
+    )
+    mock_item = MagicMock()
+    mock_item.content = "X"
+    mock_item.list_id = uuid.uuid4()
+    mock_item.id = uuid.uuid4()
+
+    from app.scheduler import _send_push
+
+    await _send_push("bad-token", mock_item)
+
+    mock_send.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_send_push_swallows_send_exception(mocker):
+    """Si send_each_async falla, es captura i no es propaga."""
+    mocker.patch("app.scheduler.firebase_admin._apps", {"default": object()})
+    mocker.patch(
+        "app.scheduler.messaging.send_each_async",
+        side_effect=RuntimeError("network"),
+    )
+    mock_item = MagicMock()
+    mock_item.content = "Test"
+    mock_item.list_id = uuid.uuid4()
+    mock_item.id = uuid.uuid4()
+
+    from app.scheduler import _send_push
+
+    await _send_push("fake-token", mock_item)

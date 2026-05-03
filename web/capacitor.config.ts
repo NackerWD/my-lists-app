@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.placeholder.app",
-  appName: "placeholder",
+  appId: "com.masterlist.app",
+  appName: "MasterList",
   webDir: "out",
   plugins: {
     PushNotifications: {

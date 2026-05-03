@@ -1,7 +1,11 @@
+import asyncio
+import functools
 import logging
 from datetime import datetime, timezone
 
+import firebase_admin
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from firebase_admin import messaging
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
@@ -37,7 +41,38 @@ async def send_reminders() -> None:
 
 
 async def _send_push(token: str, item: ListItem) -> None:
-    logger.info("PUSH → %s: %s", token, item.content)
+    """Envia push notification via FCM (firebase-admin)."""
+    if not firebase_admin._apps:
+        logger.warning("Firebase Admin no inicialitzat — push notification omesa")
+        return
+
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title="MasterList",
+                body=item.content,
+            ),
+            data={
+                "list_id": str(item.list_id),
+                "item_id": str(item.id),
+            },
+            token=token,
+        )
+        send_each_async = getattr(messaging, "send_each_async", None)
+        if send_each_async is not None:
+            response = await send_each_async([message])
+            logger.info(
+                "Push enviat: %s ok, %s errors",
+                response.success_count,
+                response.failure_count,
+            )
+        else:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, functools.partial(messaging.send, message))
+            logger.info("Push enviat (fallback sync messaging.send)")
+    except Exception as e:
+        prefix = token[:10] if len(token) >= 10 else token
+        logger.error("Error enviant push a %s...: %s", prefix, e)
 
 
 def start_scheduler() -> None:
