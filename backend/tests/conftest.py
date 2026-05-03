@@ -2,6 +2,7 @@ import os
 
 # Evita engegar APScheduler als tests (lifespan de main).
 os.environ.setdefault("SCHEDULER_ENABLED", "false")
+os.environ.setdefault("FIREBASE_CREDENTIALS_JSON", "")
 
 import uuid
 from dataclasses import dataclass

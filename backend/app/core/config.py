@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     SCHEDULER_ENABLED: bool = True
     SENTRY_DSN: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
+    FIREBASE_CREDENTIALS_JSON: str = ""  # JSON string del compte de servei (Railway)
 
 
 settings = Settings()
