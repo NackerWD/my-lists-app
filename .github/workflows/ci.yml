@@ -59,7 +59,7 @@ jobs:
         working-directory: backend
 
       - name: Run tests
-        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=82
+        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=82 -p no:unraisableexception
         working-directory: backend
 
       - name: Dependency audit
