@@ -1,9 +1,13 @@
 from contextlib import asynccontextmanager
+import json
+import logging
 
+import firebase_admin
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from firebase_admin import credentials
 from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.router import api_router
@@ -11,6 +15,8 @@ from app.core.config import settings
 from app.core.limiter import limiter
 from app.scheduler import start_scheduler, stop_scheduler
 from app.ws.handler import ws_router
+
+logger = logging.getLogger(__name__)
 
 if settings.SENTRY_DSN:
     sentry_sdk.init(
@@ -25,9 +31,21 @@ redoc_url = "/redoc" if settings.ENVIRONMENT == "development" else None
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if settings.FIREBASE_CREDENTIALS_JSON.strip():
+        try:
+            cred_dict = json.loads(settings.FIREBASE_CREDENTIALS_JSON)
+            cred = credentials.Certificate(cred_dict)
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin inicialitzat correctament")
+        except Exception as e:
+            logger.warning("Firebase Admin no inicialitzat: %s", e)
+
     if settings.SCHEDULER_ENABLED:
         start_scheduler()
+
     yield
+
     if settings.SCHEDULER_ENABLED:
         stop_scheduler()
 

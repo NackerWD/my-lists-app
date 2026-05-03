@@ -3,6 +3,8 @@
 .env.local
 .env.*.local
 backend/.env
+firebase-credentials.json
+**/firebase-adminsdk-*.json
 
 # Python
 __pycache__/
